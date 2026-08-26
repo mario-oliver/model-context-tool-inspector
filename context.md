@@ -248,6 +248,59 @@ Related concepts:
 
 See ADR-0001.
 
+### Direction B, "Panel" (the chosen visual language)
+
+Definition:
+The approved visual treatment, chosen by Mario on 2026-08-26 from three prototypes
+(specimen: https://claude.ai/code/artifact/60b4b395-d747-42ec-83a8-b7d3ee863c4a).
+Calm and roomy: rounded blocks, generous padding, status as pills and left stripes.
+
+Rules:
+- Applied **only** as a `theme.css` override loaded after `styles.css`. `styles.css` is
+  never edited (ADR-0001).
+- **No webfonts.** Native stacks only — an offline devtool must not depend on a network
+  fetch, and MV3 extension-page CSP makes remote font loading fragile. Faces degrade to
+  `system-ui`.
+- Every value below is contrast-verified. Do not substitute colours without re-checking.
+- Rejected alternatives, kept for the record: **A "Console"** (native devtool, monospace,
+  hairline rules — denser and arguably better under load, but not chosen) and
+  **C "Ledger"** (flat, ruled, uppercase labels, tabular numerals).
+
+Implementation notes — the frozen token values:
+
+| token | light | dark |
+|---|---|---|
+| `ground` | `#F6F5F3` | `#17161A` |
+| `surface` | `#FFFFFF` | `#201F25` |
+| `ink` | `#201F1D` | `#EAE8EC` |
+| `muted` | `#67645F` | `#A19DA8` |
+| `rule` | `#E4E1DC` | `#302E37` |
+| `accent` | `#55507A` | `#A39CD0` |
+| `onaccent` | `#FFFFFF` | `#15131C` |
+| `thead` | `#F1EFEB` | `#262430` |
+| `prebg` | `#F4F2EE` | `#1A1920` |
+| `placeholder` | `#6E6B66` | `#9793A0` |
+| `disabled` | `#6E6B66` | `#918D9C` |
+| `ok` | `#1F5F44` | `#68C797` |
+| `warn` | `#7E430F` | `#E5AB72` |
+| `err` | `#992429` | `#F29691` |
+| `status-bg` | `#F8F1E8` | `#241B14` |
+
+- Geometry: radius `14px` (panel) / `9px` (controls); padding `1rem`; gap `0.85rem`.
+- Faces: `"Avenir Next","Segoe UI Variable",system-ui,sans-serif` for text and chrome;
+  `ui-monospace,"SF Mono",Menlo,Consolas,monospace` for data.
+- Measured contrast (computed, not estimated): every text-on-ground pair clears WCAG AA
+  4.5:1 in both themes. Tightest pairs are dark disabled `#918D9C` on `#262430` at
+  **4.71:1** and light disabled `#6E6B66` on `#F1EFEB` at **4.62:1**. `#807C8B` was the
+  original dark disabled value and was **rejected at 3.76:1**.
+- Accent is violet, deliberately not green: in this tool green means *passed*, so a green
+  accent would collide with the `ok` state.
+
+Related concepts:
+- Transcript, Event, Destructive tool, Tracking fork
+
+---
+
 ## Rejected concepts
 
 Recorded so they are not re-introduced by a future session. Each was considered and

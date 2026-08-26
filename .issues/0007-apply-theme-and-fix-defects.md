@@ -14,7 +14,8 @@
 - `context.md#Tracking fork` — `styles.css` is **never** rewritten; override from
   `theme.css`, loaded after it.
 - PRD §FR13, §FR15, §FR16.
-- The direction chosen in issue 0006, as recorded in `context.md`.
+- `context.md` § **Direction B, "Panel"** — the frozen token table. Use those exact
+  values; they are contrast-verified. Substituting a colour requires re-verifying it.
 
 ## Goal
 The chosen visual language ships as a `theme.css` override layer, with a working theme
@@ -33,8 +34,10 @@ Three inherited defects to fix by override:
   both fail WCAG AA.
 
 ## Dependencies
-- Blocked by: 0006
+- Blocked by: — (0006 is **resolved**: direction B chosen 2026-08-26)
 - Blocks: —
+- Runs in parallel with 0001. Both touch `sidebar.html`; this issue adds only a
+  `<link>` in `<head>`, 0001 edits the `<body>`. Work in the assigned worktree.
 
 ## Scope
 - New `theme.css`, linked after `styles.css` in `sidebar.html`.
@@ -45,7 +48,6 @@ Three inherited defects to fix by override:
 - Declare `color-scheme` so native controls follow.
 - Font stack leading with `system-ui` / `-apple-system`.
 - Raise `::placeholder` and disabled-text contrast to ≥ 4.5:1 in both themes.
-- Delete the throwaway prototypes from 0006.
 
 ## Out of scope
 - Editing, reformatting, or reordering `styles.css`. Not one line.
@@ -65,9 +67,8 @@ Three inherited defects to fix by override:
 - [ ] (machine) All four states (`ok`, `error`, `lost`, destructive) carry an icon **and**
       a text label in both themes — assert label text, not colour.
 - [ ] (machine) No horizontal body scroll at 400px in either theme.
-- [ ] (machine) `proto/` no longer exists.
 - [ ] (machine) Protected-file diff still empty; suite reports 0 failed.
-- [ ] (trust-prior-verify) Matches the direction chosen in 0006.
+- [ ] (trust-prior-verify) Matches direction B as rendered in the specimen artifact.
 
 ## Feedback Loops
 ```bash
