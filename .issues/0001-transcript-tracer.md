@@ -17,6 +17,38 @@
 - `docs/prd/assistant-mode-transcript.md` §Data decisions — the Event table.
 - Changing the Event shape is an outer-loop decision. Stop and flag rather than extend it.
 
+## DOM contract (frozen — direction B was approved 2026-08-26)
+
+The visual design is settled: **direction B, "Panel"**. Issue 0007 applies it as a
+`theme.css` override. For that to be a pure styling pass, THIS issue must emit the
+element/class skeleton below. Getting the structure right here is more important than
+how it looks.
+
+```
+#transcript                              <- replaces <pre id="promptResults">
+  .t-flow                                <- the ordered Event stream
+    .t-user                              <- user message  (right-aligned when styled)
+    .t-assist                            <- assistant prose
+    details.t-ev.ok  |  .t-ev.err        <- ONE tool call = one <details>
+      summary
+        .who     "MCP"                   <- the WebMCP tag; makes tool calls scannable
+        .tool    "✓ tool-name"           <- status icon + name
+        .ms      "310ms"                 <- duration, tabular
+        .chev    "▸"                     <- rotates when open
+      .precis                            <- one-line argument precis, visible collapsed
+```
+
+Rules that follow from the design and are NOT negotiable here:
+- **One `<details>` per tool call.** Native disclosure, no custom toggle JS.
+- **Status carried by a class on `.t-ev`** (`ok` / `err`), never by an inline colour.
+  0007 attaches the stripe to that class. The icon in `.tool` and the class must agree.
+- Reserve, but do not populate, `.t-evidence` (issue 0002) and `.t-raw > dl.t-kv`
+  (issue 0003) inside `.t-ev`. Leave `.t-chips` and `.t-composer` to 0004/0005.
+- **The user must be able to follow the run by reading only the `.t-ev` rows.** Prose is
+  the model talking; bordered rows are the machine acting. Do not merge the two.
+
+Reference rendering: https://claude.ai/code/artifact/60b4b395-d747-42ec-83a8-b7d3ee863c4a
+
 ## Goal
 The agent run renders as an ordered stream of typed Events instead of appended strings,
 and the renderer is provably independent of Gemini. This is the tracer bullet: every
@@ -68,22 +100,40 @@ restoring the types is the whole job. `promptAI()`'s control flow does not chang
 - [ ] (machine) `git diff upstream/main --name-only -- styles.css background.js utils.js`
       is **empty**. (`content.js` is excluded per
       [ADR-0003](../docs/adr/0003-content-js-exception.md); issue 0000 bounds its diff.)
-- [ ] (machine) `test/e2e.mjs` collects zero console errors, and reports
-      **15 passed, 0 failed** (the count issue 0000 establishes).
-- [ ] (trust-prior-verify) The Transcript is readable at ~400px panel width. Rough is
-      fine; polish is issues 0006/0007.
+- [ ] (machine) On a run that completes, `test/e2e.mjs` reports **15 passed, 0 failed**
+      with zero console errors. (Crashes with no summary line are the known flake.)
+- [ ] (machine) The DOM contract above is emitted exactly: `#transcript`, `.t-flow`,
+      `.t-user`, `.t-assist`, and `details.t-ev` with `summary > .who/.tool/.ms/.chev`
+      plus `.precis`. Assert on the selectors.
+- [ ] (trust-prior-verify) A reader can follow the run from the `.t-ev` rows alone,
+      at ~380px. Unstyled is fine; direction B lands in 0007.
 
 ## Feedback Loops
 ```bash
-cd test && npm install && npm test          # e2e: new Event assertions + existing upstream assertions
-npm run guard:merge-surface                  # new: asserts zero diff on protected upstream files
+cd test && npm test; echo "EXIT=$?"   # never pipe this; a pipe returns tail's status
+npm run guard:merge-surface           # new: asserts zero diff on protected upstream files
 ```
+
+**Known-flaky gate — read this before diagnosing anything.** `test/e2e.mjs` carries a
+PRE-EXISTING upstream race in its cross-document waits. Roughly one run in three dies
+with an uncaught `page.waitForFunction: Timeout 20000ms exceeded` in `waitSidebar`,
+*before printing a summary line*. We have deliberately chosen not to fix it.
+
+- A crash with **no `N passed, M failed` line** is the flake, NOT a failure of your work.
+  Re-run, up to 3 attempts.
+- A real failure is a printed `M failed` with M > 0. Only that requires diagnosis.
+- Do not "fix" the flake, add retries to `e2e.mjs`, or raise its timeouts.
+- Target on a completing run: **15 passed, 0 failed**.
 Note: this repo has **no typecheck and no lint** (vanilla JS, no build step). The e2e
 harness and the merge guard are the only automated gates available — do not add a
 toolchain as part of this issue.
 
+Preflight is already done on this branch: `js-genai.js` exists and `test/node_modules`
+is installed. Do **not** run `npm install` in the repo root — its postinstall deletes
+`node_modules` by design.
+
 ## Baseline ref
-`<filled by the inner loop at preflight — base off 0000's merge>`
+`adea603` (epic/assistant-transcript, 0000 merged)
 
 ## Notes for agent
 - `logPrompt()` is at `sidebar.js:397`; its call sites are at lines 236, 263, 265, 274,
