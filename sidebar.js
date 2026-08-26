@@ -5,6 +5,7 @@
 
 import { GoogleGenAI } from './js-genai.js';
 import { getAllFrameOrigins } from './utils.js';
+import * as Transcript from './transcript.js';
 
 const statusDiv = document.getElementById('status');
 const tbody = document.getElementById('tableBody');
@@ -21,9 +22,10 @@ const promptBtn = document.getElementById('promptBtn');
 const traceBtn = document.getElementById('traceBtn');
 const resetBtn = document.getElementById('resetBtn');
 const apiKeyBtn = document.getElementById('apiKeyBtn');
-const promptResults = document.getElementById('promptResults');
 const advancedSection = document.getElementById('advancedSection');
 const suggestUserPromptCheckbox = document.getElementById('suggestUserPromptCheckbox');
+
+Transcript.mount(document.getElementById('transcript'));
 
 // First, request list of tools from content script living in top-level frame.
 (async () => {
@@ -233,7 +235,7 @@ promptBtn.onclick = async () => {
     await promptAI();
   } catch (error) {
     trace.push({ error });
-    logPrompt(`⚠️ Error: "${error}"`);
+    logPrompt('error', { text: `Error: "${error}"` });
   }
 };
 
@@ -247,7 +249,7 @@ async function promptAI() {
   const message = userPromptText.value;
   userPromptText.value = '';
   lastSuggestedUserPrompt = '';
-  promptResults.textContent += `User prompt: "${message}"\n`;
+  logPrompt('user', { text: message });
   const sendMessageParams = { message, config: getConfig() };
   trace.push({ userPrompt: sendMessageParams });
   let currentResult = await chat.sendMessage(sendMessageParams);
@@ -260,9 +262,9 @@ async function promptAI() {
 
     if (functionCalls.length === 0) {
       if (!response.text) {
-        logPrompt(`⚠️ AI response has no text: ${JSON.stringify(response.candidates)}\n`);
+        logPrompt('warning', { text: `AI response has no text: ${JSON.stringify(response.candidates)}` });
       } else {
-        logPrompt(`AI result: ${response.text?.trim()}\n`);
+        logPrompt('assistant', { text: response.text?.trim() });
       }
       finalResponseGiven = true;
     } else {
@@ -271,13 +273,18 @@ async function promptAI() {
         let [frameId, name] = toolName.split(/_(.*)/s)[1].split(/_(.*)/s);
         frameId = parseInt(frameId);
         const inputArgs = JSON.stringify(args);
-        logPrompt(`AI calling tool "${name}" with ${inputArgs}`);
+        const toolEvent = logPrompt('toolCall', {
+          toolName: name,
+          frameId,
+          proposedArgs: args,
+          sentArgs: args,
+        });
         try {
           const result = await executeTool(tab.id, name, inputArgs, frameId);
           toolResponses.push({ functionResponse: { name: toolName, response: { result } } });
-          logPrompt(`Tool "${name}" result: ${result}`);
+          logPrompt(toolEvent, { status: 'ok', result });
         } catch (e) {
-          logPrompt(`⚠️ Error executing tool "${name}": ${e.message}`);
+          logPrompt(toolEvent, { status: 'error', errorMessage: e.message });
           toolResponses.push({
             functionResponse: { name: toolName, response: { error: e.message } },
           });
@@ -296,7 +303,7 @@ resetBtn.onclick = () => {
   trace = [];
   userPromptText.value = '';
   lastSuggestedUserPrompt = '';
-  promptResults.textContent = '';
+  Transcript.reset();
   suggestUserPrompt();
 };
 
@@ -394,9 +401,14 @@ function updateDefaultValueForInputArgs() {
 
 // Utils
 
-function logPrompt(text) {
-  promptResults.textContent += `${text}\n`;
-  promptResults.scrollTop = promptResults.scrollHeight;
+// The seam (context.md#The seam): all Event emission happens here. A string
+// first argument creates a new Event of that kind; passing back the Event
+// returned from an earlier call updates it in place instead — that's how the
+// "calling tool" and "result"/"error" call sites end up as one Event.
+function logPrompt(kindOrEvent, data) {
+  return typeof kindOrEvent === 'string'
+    ? Transcript.append(kindOrEvent, data)
+    : Transcript.update(kindOrEvent, data);
 }
 
 function getFormattedDate() {
