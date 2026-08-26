@@ -171,9 +171,30 @@ for (const name of ['add_numbers', 'go_checkout', 'submit_order', 'open_report',
 }
 check('lists iframe tool with frameId', optionText.some((t) => t.includes('echo_frame') && /\(\d+\)/.test(t)), optionText.find((t) => t.includes('echo_frame')) || 'missing');
 
-// Badge shows the tool count on the demo tab
-const badge = await sw.evaluate(async (tabId) => chrome.action.getBadgeText({ tabId }), demoTabId);
-check('badge shows tool count', badge === '6', `badge="${badge}"`);
+// Badge shows the tool count on the demo tab. Extended to also prove that
+// re-injecting content.js into this same, already-open tab (the path
+// background.js's onInstalled catch-up uses to reach tabs the side panel
+// never navigated) still produces a fresh listing and not a silent no-op:
+// clear the badge, force a same-frame re-injection with no other message in
+// between, and confirm the badge can only have come back from that.
+async function waitForBadge(tabId, expected, timeout = 8000) {
+  const start = Date.now();
+  let text;
+  while (Date.now() - start < timeout) {
+    text = await sw.evaluate((id) => chrome.action.getBadgeText({ tabId: id }), tabId);
+    if (text === expected) return text;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return text;
+}
+let badge = await waitForBadge(demoTabId, '6');
+await sw.evaluate((id) => chrome.action.setBadgeText({ text: '', tabId: id }), demoTabId);
+await sw.evaluate(
+  (tabId) => chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }),
+  demoTabId,
+);
+badge = await waitForBadge(demoTabId, '6');
+check('badge shows tool count, including after re-injection into an already-open tab', badge === '6', `badge="${badge}"`);
 
 // Script tool, fast path
 await demo.bringToFront();

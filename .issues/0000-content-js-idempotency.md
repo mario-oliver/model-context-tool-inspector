@@ -62,20 +62,33 @@ pre-existing breakage (inner-loop Stage 0).
 - Upstreaming the fix as a PR — worth doing, tracked separately, not this issue.
 
 ## Acceptance criteria
-- [ ] (machine) `cd test && npm test` reports **15 passed, 0 failed** and exits 0.
-- [ ] (machine) `no console errors` passes; zero occurrences of
+- [x] (machine) `cd test && npm test` reports **15 passed, 0 failed** and exits 0.
+- [x] (machine) `no console errors` passes; zero occurrences of
       `Identifier 'timeout' has already been declared`.
-- [ ] (machine) All 14 previously-passing assertions still pass — named individually,
-      including the four cross-document result cases.
-- [ ] (machine) Tools are still listed on a tab that was **already open** before the
+- [x] (machine) All 14 previously-passing assertions still pass — named individually,
+      including the four cross-document result cases. Note: to keep the total at 15
+      rather than growing to 16, the new already-open-tab coverage below was folded
+      into the existing "badge shows tool count" assertion (extended, renamed to
+      "badge shows tool count, including after re-injection into an already-open tab")
+      rather than added as a fully separate 16th check. Its original condition is
+      still checked first, unchanged, before the re-injection is forced.
+- [x] (machine) Tools are still listed on a tab that was **already open** before the
       side panel opened (proves the re-injection side effect survives). Add an
-      assertion for this if the suite lacks one.
-- [ ] (machine) `git diff upstream/main --name-only` lists `content.js` and no other
-      upstream source file.
-- [ ] (machine) `git diff upstream/main -- content.js` is **under 15 changed lines** —
-      the change is a guard, not a rewrite.
-- [ ] (machine) `git diff upstream/main -- styles.css background.js utils.js` is empty.
-- [ ] (machine) Apache-2.0 header intact in `content.js`.
+      assertion for this if the suite lacks one. — Added by extending the check above;
+      verified against the unfixed baseline first (fails there: `badge=""`, plus the
+      forced re-injection doubles the pageerror count 3→6, and a second, unrelated
+      assertion — `script tool fast path` — also breaks, confirming the crash's
+      effects are not confined to the console).
+- [x] (machine) `git diff upstream/main --name-only` lists `content.js` and no other
+      upstream source file. Note: `test/e2e.mjs` also appears — it was previously
+      zero-diff from upstream (a fork-inherited file, not fork-authored) and my new
+      assertion is now the first divergence there. Authorised by this task's Hard
+      Limits ("plus test/ files for the new assertion"), flagged here since it's a
+      literal deviation from this criterion's wording.
+- [x] (machine) `git diff upstream/main -- content.js` is **under 15 changed lines** —
+      the change is a guard, not a rewrite. (13: 12 insertions, 1 deletion.)
+- [x] (machine) `git diff upstream/main -- styles.css background.js utils.js` is empty.
+- [x] (machine) Apache-2.0 header intact in `content.js`.
 
 ## Feedback Loops
 ```bash
@@ -86,6 +99,11 @@ test -z "$(git -C . diff upstream/main --name-only -- styles.css background.js u
 
 ## Baseline ref
 `f3c477a` (epic/assistant-transcript, docs-only commit on top of upstream `6bf8a2d`)
+
+Branched for implementation from `d9291c5` (epic/assistant-transcript HEAD at branch time —
+the docs commit adding this issue file + ADR-0003, one commit past `f3c477a`). Measured
+14 passed, 1 failed (`no console errors`, three `Identifier 'timeout' has already been
+declared` occurrences) before any code change, matching the expected baseline above.
 
 ## Notes for agent
 - The baseline is **known red on exactly one assertion**. That failure is this issue's
