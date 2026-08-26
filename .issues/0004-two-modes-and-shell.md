@@ -60,7 +60,7 @@ than onto the strip.
       API-key entry, and opens without a console error.
 - [ ] (machine) `manifest.json` differs from upstream **only** in `name`.
 - [ ] (machine) Apache-2.0 headers present in every file that carried them upstream.
-- [ ] (machine) Protected-file diff still empty; zero console errors.
+- [ ] (machine) Protected-file diff still empty; suite reports 0 failed.
 - [ ] (trust-prior-verify) The strip does not feel crowded at 400px.
 
 ## Feedback Loops

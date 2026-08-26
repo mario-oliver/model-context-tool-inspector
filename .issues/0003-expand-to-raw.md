@@ -55,7 +55,7 @@ the verbatim result exposes those. Summarizing is the failure.
 - [ ] (machine) Expansion state survives subsequent Events being appended.
 - [ ] (machine) Long results do not break panel layout — no horizontal body scroll at
       400px.
-- [ ] (machine) Protected-file diff still empty; zero console errors.
+- [ ] (machine) Protected-file diff still empty; suite reports 0 failed.
 - [ ] (trust-prior-verify) Collapsed state reads calm; expanded state reads complete.
 
 ## Feedback Loops

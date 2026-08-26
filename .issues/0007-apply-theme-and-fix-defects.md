@@ -66,7 +66,7 @@ Three inherited defects to fix by override:
       a text label in both themes — assert label text, not colour.
 - [ ] (machine) No horizontal body scroll at 400px in either theme.
 - [ ] (machine) `proto/` no longer exists.
-- [ ] (machine) Protected-file diff still empty; zero console errors.
+- [ ] (machine) Protected-file diff still empty; suite reports 0 failed.
 - [ ] (trust-prior-verify) Matches the direction chosen in 0006.
 
 ## Feedback Loops

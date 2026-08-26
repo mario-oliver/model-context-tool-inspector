@@ -40,6 +40,23 @@ the truth. ADR-0002 records that URL capture needs **no `content.js` change**:
 - Render `lost` distinctly from `error`, with an icon **and** a text label, and always
   surface the URL pair on a `lost` Event without requiring expansion.
 
+## Critical constraint — do not over-classify `lost`
+
+**Upstream already recovers results across navigation in several cases, and those cases
+pass today.** The baseline suite proves it:
+
+- `cross-document result, script navigation` — PASS
+- `cross-document result, form navigation` — PASS
+- `cross-document result from new tab` — PASS
+- `form tool with iframe target` — PASS
+
+`content.js` does this via its `formTarget` / `targetFrame` logic. So `lost` is **not**
+"the page navigated". `lost` is specifically "recovery was attempted and failed" — the
+cross-origin case observed on optimizely.com.
+
+Classifying any of those four cases as `lost` is a **regression**, not a feature. They
+must still report `ok` with their real result. Assert this explicitly.
+
 ## Out of scope
 - The second `executeTool` call site (Inspector mode's Execute button) — leave untouched.
 - `content.js` — explicitly not needed; adding a message-protocol change here is a
@@ -52,11 +69,14 @@ the truth. ADR-0002 records that URL capture needs **no `content.js` change**:
       navigates — classifies as `status: 'lost'`, **not** `'error'`.
 - [ ] (machine) That same Event has `urlBefore !== urlAfter`, with both populated.
 - [ ] (machine) A call to `add_numbers` classifies `ok` and has `urlBefore === urlAfter`.
+- [ ] (machine) **All four cross-document / iframe-target cases still classify `ok`
+      with their real result** — `script navigation`, `form navigation`, `from new tab`,
+      `form tool with iframe target`. None may become `lost`.
 - [ ] (machine) Every `toolCall` Event has a numeric `durationMs`.
 - [ ] (machine) The rendered `lost` Event contains both URLs in its collapsed state.
 - [ ] (machine) `lost` and `error` render different icons **and** different text labels
       — assert on the label text, not on colour.
-- [ ] (machine) Protected-file diff still empty; zero console errors.
+- [ ] (machine) Protected-file diff still empty; suite reports 15+ passed, 0 failed.
 - [ ] (trust-prior-verify) A `lost` Event communicates "it ran, the result vanished"
       without needing prose explanation.
 

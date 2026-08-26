@@ -29,7 +29,7 @@ ADR-0002 establishes that `logPrompt()` is already the event bus with the types 
 restoring the types is the whole job. `promptAI()`'s control flow does not change.
 
 ## Dependencies
-- Blocked by: —
+- Blocked by: 0000 (baseline must be green before this runs — inner-loop Stage 0)
 - Blocks: 0002, 0003, 0004
 
 ## Scope
@@ -42,8 +42,9 @@ restoring the types is the whole job. `promptAI()`'s control flow does not chang
 - Event kinds: `user`, `assistant`, `toolCall`, `error`, `warning`. Status `ok` and
   `error` only.
 - Preserve upstream's auto-scroll-on-append behaviour.
-- **Merge-surface guard**: a script asserting the ADR-0001 invariant, wired into the
-  test run so it fails the build when violated.
+- **Merge-surface guard**: a script asserting the ADR-0001 invariant over the protected
+  set — `styles.css`, `background.js`, `utils.js` — wired into the test run so it fails
+  when violated. `content.js` is excluded per ADR-0003.
 - e2e coverage in `test/e2e.mjs` for the `ok` path via the existing `add_numbers` fixture.
 
 ## Out of scope
@@ -52,7 +53,7 @@ restoring the types is the whole job. `promptAI()`'s control flow does not chang
 - Mode switch, header strip, rename — issue 0004.
 - Chips, destructive flag — issue 0005.
 - Any styling beyond making the Transcript legible. No `theme.css` yet.
-- `promptAI()` control flow. `content.js`. `background.js`. `styles.css`. `utils.js`.
+- `promptAI()` control flow. `content.js` (issue 0000 owns it). `background.js`. `styles.css`. `utils.js`.
 
 ## Acceptance criteria
 - [ ] (machine) `transcript.js` renders a hand-written fixture array covering all five
@@ -64,9 +65,11 @@ restoring the types is the whole job. `promptAI()`'s control flow does not chang
 - [ ] (machine) A thrown loop error produces one `error` Event (covers the
       `promptBtn.onclick` catch site, the sixth `logPrompt` call).
 - [ ] (machine) Reset clears all Events and the rendered Transcript.
-- [ ] (machine) `git diff upstream/main --name-only -- styles.css content.js background.js utils.js`
-      is **empty**.
-- [ ] (machine) `test/e2e.mjs` collects zero console errors.
+- [ ] (machine) `git diff upstream/main --name-only -- styles.css background.js utils.js`
+      is **empty**. (`content.js` is excluded per
+      [ADR-0003](../docs/adr/0003-content-js-exception.md); issue 0000 bounds its diff.)
+- [ ] (machine) `test/e2e.mjs` collects zero console errors, and reports
+      **15 passed, 0 failed** (the count issue 0000 establishes).
 - [ ] (trust-prior-verify) The Transcript is readable at ~400px panel width. Rough is
       fine; polish is issues 0006/0007.
 
@@ -80,7 +83,7 @@ harness and the merge guard are the only automated gates available — do not ad
 toolchain as part of this issue.
 
 ## Baseline ref
-`<filled by the inner loop at preflight>`
+`<filled by the inner loop at preflight — base off 0000's merge>`
 
 ## Notes for agent
 - `logPrompt()` is at `sidebar.js:397`; its call sites are at lines 236, 263, 265, 274,

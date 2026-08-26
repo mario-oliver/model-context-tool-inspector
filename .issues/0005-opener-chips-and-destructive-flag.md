@@ -66,7 +66,7 @@ optimizely.com are wired to real pipelines.
       `*-submit` name is **not** flagged.
 - [ ] (machine) Clicking a chip populates the composer and does **not** execute anything.
 - [ ] (machine) No code path calls `executeTool` as a result of rendering or clicking a chip.
-- [ ] (machine) Protected-file diff still empty; zero console errors.
+- [ ] (machine) Protected-file diff still empty; suite reports 0 failed.
 - [ ] (trust-prior-verify) The destructive marker reads as a warning, not decoration.
 
 ## Feedback Loops

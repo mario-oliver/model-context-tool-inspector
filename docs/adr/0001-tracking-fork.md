@@ -80,6 +80,8 @@ Maintain a **tracking fork**. Keep merging upstream, and shape all work to keep
 - Restyle or restructure Inspector mode.
 - Change `promptAI()`'s control flow.
 - Edit `content.js` or `background.js`.
+  **Amended by [ADR-0003](0003-content-js-exception.md)**: one narrowly-bounded
+  idempotency fix in `content.js` is permitted. `background.js` remains untouchable.
 - Delete upstream Apache-2.0 copyright headers.
 
 This decision is revisitable. Converting to a hard fork once WebMCP reaches Chrome
