@@ -101,7 +101,11 @@ chrome.runtime.onMessage.addListener(async ({ message, tools, url, type }, sende
         pre.textContent = JSON.stringify(JSON.parse(item[key]), '', '  ');
         td.appendChild(pre);
       } catch (error) {
-        td.textContent = item[key];
+        // `?? ''` because an absent hint arrives as the key present with an
+        // undefined value (content.js), and textContent stringifies undefined
+        // to the literal "undefined" — noise in a table whose job is showing
+        // exactly what the page declared. Blank means undeclared.
+        td.textContent = item[key] ?? '';
       }
       row.appendChild(td);
     });
@@ -489,14 +493,20 @@ function isLostToNavigation(error) {
 /**
  * Does this tool have outward-facing side effects?
  *
- * `readOnlyHint` is authoritative when present: a tool the page declares
- * read-only is never destructive, whatever it's called. Otherwise fall back to
- * the name heuristic (context.md#Destructive tool).
+ * Precedence, highest first:
+ *   1. `readOnlyHint: true` — authoritative. A tool the page declares read-only
+ *      is never destructive, whatever it's called.
+ *   2. The name heuristic (context.md#Destructive tool).
  *
- * Note: `destructiveHint: true` cannot be honoured yet. content.js forwards only
- * `readOnlyHint` and `untrustedContentHint` (content.js:100-103) and drops the
- * rest of `annotations`, and ADR-0003 limits content.js changes to idempotency.
- * So annotations can currently CLEAR a tool but not FLAG one.
+ * `destructiveHint` is NOT consulted, and cannot be: the Chrome Origin Trial
+ * puts exactly two keys on `annotations` — `readOnlyHint` and
+ * `untrustedContentHint` — so a page that correctly declares
+ * `destructiveHint: true` is invisible to any extension, ours included. Measured
+ * against a fixture that declares it, not assumed; the e2e suite carries a
+ * canary that goes red the day Chrome adds the field. See
+ * docs/adr/0004-forward-destructive-hint.md for the attempt and the revert.
+ *
+ * Consequence to be honest about: annotations can CLEAR a tool but not FLAG one.
  */
 function isDestructive(tool) {
   if (tool?.readOnlyHint) return false;

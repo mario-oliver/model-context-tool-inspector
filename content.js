@@ -99,6 +99,8 @@ async function listTools(fromOrigins) {
       description: tool.description,
       inputSchema,
       readOnlyHint: tool.annotations?.readOnlyHint ? '✓' : undefined,
+      // Not an arbitrary subset: the only two keys the Chrome OT puts on
+      // `annotations`. See docs/adr/0004-forward-destructive-hint.md.
       untrustedContentHint: tool.annotations?.untrustedContentHint ? '✓' : undefined,
       name: tool.name,
       frameId,

@@ -30,13 +30,27 @@ how it looks.
     .t-user                              <- user message  (right-aligned when styled)
     .t-assist                            <- assistant prose
     details.t-ev.ok  |  .t-ev.err        <- ONE tool call = one <details>
-      summary
-        .who     "MCP"                   <- the WebMCP tag; makes tool calls scannable
-        .tool    "✓ tool-name"           <- status icon + name
-        .ms      "310ms"                 <- duration, tabular
-        .chev    "▸"                     <- rotates when open
-      .precis                            <- one-line argument precis, visible collapsed
+      summary                            <- everything readable while COLLAPSED
+        .t-head                          <- flex row
+          .who     "MCP"                 <- the WebMCP tag; makes tool calls scannable
+          .tool    "✓ tool-name"         <- status icon + name
+          .state   "ok"                  <- status word; state is never hue-only
+          .ms      "310ms"               <- duration, tabular
+          .chev    "▸"                   <- rotates when open
+        .precis                          <- one-line argument precis, visible collapsed
 ```
+
+**CORRECTED after implementation.** This block originally placed `.precis` as a
+sibling *after* `<summary>`, and had no `.t-head`. That shape cannot satisfy
+"visible collapsed": Chrome hides non-summary `<details>` children via
+`::details-content { content-visibility: hidden }`, which a child's own
+`display: block` cannot override. `.precis` and `.t-evidence` must be **inside**
+`<summary>`; `.t-head` exists to keep the header a flex row now that `<summary>`
+has block children below it. See context.md#Transcript for the built contract.
+
+Assert collapsed-state visibility with
+`checkVisibility({ contentVisibilityAuto: true })`. Checking for presence, or
+reading `getComputedStyle().display`, passes against the broken shape.
 
 Rules that follow from the design and are NOT negotiable here:
 - **One `<details>` per tool call.** Native disclosure, no custom toggle JS.

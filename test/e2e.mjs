@@ -229,7 +229,7 @@ const fixture = await sidebar.evaluate(async () => {
       tool: e.querySelector('summary .tool')?.textContent,
       hasMs: !!e.querySelector('summary .ms'),
       hasChev: !!e.querySelector('summary .chev'),
-      precis: e.querySelector(':scope > .precis')?.textContent,
+      precis: e.querySelector(':scope > summary > .precis')?.textContent,
       // .t-evidence moved inside <summary> so it reads while collapsed; it is no
       // longer a direct child of <details>.
       hasEvidence: !!e.querySelector('.t-evidence'),
@@ -486,6 +486,15 @@ check('no-tools page shows empty state', true);
 // markup other issues add.
 
 function parseRGB(str) {
+  // Hex branch, additive: the theme-coverage block normalises colours by
+  // rasterising them to a 1x1 canvas and reading the pixel, which yields
+  // #rrggbb. Chrome serialises color-mix() as `color(srgb ...)`, so parsing the
+  // computed string directly is not an option there.
+  const hexMatch = /^#([0-9a-f]{6})$/i.exec((str || '').trim());
+  if (hexMatch) {
+    const n = parseInt(hexMatch[1], 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
   const m = /rgba?\(([^)]+)\)/.exec(str || '');
   if (!m) return null;
   const [r, g, b] = m[1].split(',').map((s) => parseFloat(s));
@@ -766,6 +775,277 @@ check('0004: extension renamed', manifestName === 'AI Agent in Browser', manifes
 
 await ensureAssistant();
 
+
+// ---------------------------------------------------------------------------
+// Direction B reaches the Assistant-mode markup.
+//
+// theme.css was authored against upstream's DOM only, so it originally styled
+// none of the Transcript / chips / strip elements — the theme "passed" while
+// direction B was invisible on the new UI. These assertions read computed
+// styles, so a token that never reaches an element fails here.
+//
+// Colours are normalised through a canvas fillStyle rather than parsed from
+// the computed string: theme.css derives every tint with color-mix(), and
+// Chrome is free to serialise that as rgb(), color(srgb ...) or oklab(). Canvas
+// normalisation collapses all of them to #rrggbb.
+// ---------------------------------------------------------------------------
+await ensureAssistant();
+
+const readThemeCoverage = () =>
+  sidebar.evaluate(async () => {
+    // One Event of every kind and every status, so no measured selector can be
+    // absent. Built here rather than passed in as a code string: the extension
+    // page's CSP blocks eval().
+    const T = await import('./transcript.js');
+    T.reset();
+    T.append('user', { text: 'ship it' });
+    T.append('assistant', { text: 'calling three tools' });
+    T.append('toolCall', { toolName: 'read_notes', status: 'ok', sentArgs: { q: 'x' }, durationMs: 12, frameId: 0 });
+    T.append('toolCall', { toolName: 'go_checkout', status: 'lost', sentArgs: {}, urlBefore: 'https://a.test/1', urlAfter: 'https://a.test/2', durationMs: 300, frameId: 0 });
+    // 'error', not 'err': 'err' is the CLASS transcript.js derives, not the
+    // status value. Passing the class name yields no class at all.
+    T.append('toolCall', { toolName: 'submit_order', status: 'error', destructive: true, sentArgs: { qty: 3 }, errorMessage: 'boom', durationMs: 40, frameId: 0 });
+    T.append('toolCall', { toolName: 'pending_tool', sentArgs: {} });
+    T.append('error', { text: 'loop failed' });
+    T.append('warning', { text: 'heads up' });
+
+    // Rasterise, then read the pixel back. Normalising via `ctx.fillStyle`
+    // alone is not enough: Chrome serialises color-mix() output as
+    // `color(srgb 0.1 0.2 0.3)`, which no rgb() parser reads. A 1x1 fillRect
+    // plus getImageData returns the actual 8-bit channels for every syntax.
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 1;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const hex = (s) => {
+      if (!s) return null;
+      // Two sentinels: an unparseable value leaves fillStyle untouched, so
+      // report null rather than silently measuring the sentinel.
+      ctx.fillStyle = '#010203';
+      ctx.fillStyle = s;
+      const first = ctx.fillStyle;
+      ctx.fillStyle = '#040506';
+      ctx.fillStyle = s;
+      if (first !== ctx.fillStyle) return null;
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+      // A non-opaque result means there is no honest background to measure
+      // against — fail loudly instead of compositing onto transparent black.
+      if (a !== 255) return null;
+      return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+    };
+    const q = (sel) => document.querySelector(sel);
+    const cs = (sel, prop, pseudo) => {
+      const el = q(sel);
+      return el ? getComputedStyle(el, pseudo)[prop] : null;
+    };
+    const pair = (sel) => {
+      const el = q(sel);
+      if (!el) return null;
+      const s = getComputedStyle(el);
+      return { fg: hex(s.color), bg: hex(s.backgroundColor) };
+    };
+    // Text on an element with a transparent background sits on its nearest
+    // painted ancestor, so resolve upward rather than measuring rgba(0,0,0,0).
+    const onto = (sel, ancestorSel) => {
+      const el = q(sel);
+      const anc = q(ancestorSel);
+      if (!el || !anc) return null;
+      return { fg: hex(getComputedStyle(el).color), bg: hex(getComputedStyle(anc).backgroundColor) };
+    };
+    return {
+      theme: document.documentElement.dataset.theme ?? 'system',
+      // Stripe = status channel. Four distinct values means the class is wired.
+      stripePending: hex(cs('#transcript details.t-ev:not(.ok):not(.lost):not(.err)', 'borderLeftColor')),
+      stripeOk: hex(cs('#transcript details.t-ev.ok', 'borderLeftColor')),
+      stripeLost: hex(cs('#transcript details.t-ev.lost', 'borderLeftColor')),
+      stripeErr: hex(cs('#transcript details.t-ev.err', 'borderLeftColor')),
+      // Panel geometry from --radius-panel, not upstream's 8px.
+      transcriptRadius: cs('#transcript', 'borderTopLeftRadius'),
+      transcriptBg: hex(cs('#transcript', 'backgroundColor')),
+      // A themed .t-ev must not be sitting on the page ground unpainted.
+      evBg: hex(cs('#transcript details.t-ev.ok', 'backgroundColor')),
+      // .t-raw and upstream's <pre> both draw --prebg: proof of a shared token.
+      rawBg: hex(cs('#transcript .t-raw', 'backgroundColor')),
+      preBg: hex(cs('#toolResults', 'backgroundColor')),
+      // A chip must NOT still be wearing the solid accent button fill.
+      chipBg: hex(cs('#chips .chip', 'backgroundColor')),
+      badgeBg: hex(cs('#badge', 'backgroundColor')),
+      accentBg: hex(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()),
+      // Machine text is mono, prose is not.
+      toolFont: cs('#transcript .t-ev .tool', 'fontFamily'),
+      assistFont: cs('#transcript .t-assist', 'fontFamily'),
+      // .state must track the stripe custom property, not a literal.
+      stateErr: hex(cs('#transcript details.t-ev.err .state', 'color')),
+      contrast: {
+        'ok state': { fg: hex(cs('#transcript details.t-ev.ok .state', 'color')), bg: hex(cs('#transcript details.t-ev.ok', 'backgroundColor')) },
+        'lost state': { fg: hex(cs('#transcript details.t-ev.lost .state', 'color')), bg: hex(cs('#transcript details.t-ev.lost', 'backgroundColor')) },
+        'err state': { fg: hex(cs('#transcript details.t-ev.err .state', 'color')), bg: hex(cs('#transcript details.t-ev.err', 'backgroundColor')) },
+        'MCP tag': pair('#transcript .t-ev .who'),
+        'destructive pill': pair('#transcript .t-ev .dstr-flag'),
+        'user bubble': pair('#transcript .t-user'),
+        'arg precis': { fg: hex(cs('#transcript .t-ev .precis', 'color')), bg: hex(cs('#transcript details.t-ev.ok', 'backgroundColor')) },
+        'lost evidence': { fg: hex(cs('#transcript details.t-ev.lost .t-evidence', 'color')), bg: hex(cs('#transcript details.t-ev.lost', 'backgroundColor')) },
+        'raw key': { fg: hex(cs('#transcript .t-kv dt', 'color')), bg: hex(cs('#transcript .t-raw', 'backgroundColor')) },
+        'raw value': { fg: hex(cs('#transcript .t-kv dd', 'color')), bg: hex(cs('#transcript .t-raw', 'backgroundColor')) },
+        chip: pair('#chips .chip'),
+        badge: pair('#badge'),
+        'transcript error line': pair('#transcript .t-error'),
+        'transcript warning line': pair('#transcript .t-warning'),
+        'inactive mode tab': onto('#modes button.secondary', 'body'),
+      },
+    };
+  });
+
+// Pin the theme rather than inheriting it: an earlier block leaves the panel on
+// the dark toggle, so measuring "light" ambiently measured the dark palette and
+// every light assertion was a lie that happened to pass.
+await sidebar.evaluate(() => {
+  document.documentElement.dataset.theme = 'light';
+});
+const themeLight = await readThemeCoverage();
+check('theme: light toggle applied', themeLight.theme === 'light', String(themeLight.theme));
+
+const stripesLight = [themeLight.stripePending, themeLight.stripeOk, themeLight.stripeLost, themeLight.stripeErr];
+check(
+  'theme: .t-ev stripe is wired to the status class (4 distinct colours)',
+  // `.every(Boolean)` matters: a missing selector returns null, and a null
+  // counted as the fourth distinct "colour" once already.
+  stripesLight.every(Boolean) && new Set(stripesLight).size === 4,
+  JSON.stringify(stripesLight),
+);
+check('theme: .state colour follows the stripe token', themeLight.stateErr === themeLight.stripeErr, `${themeLight.stateErr} vs ${themeLight.stripeErr}`);
+check('theme: #transcript uses --radius-panel (14px)', themeLight.transcriptRadius === '14px', String(themeLight.transcriptRadius));
+check('theme: #transcript and .t-ev are painted, not transparent', !!themeLight.transcriptBg && !!themeLight.evBg && themeLight.transcriptBg !== themeLight.evBg, `panel=${themeLight.transcriptBg} row=${themeLight.evBg}`);
+check('theme: .t-raw shares --prebg with upstream <pre>', themeLight.rawBg === themeLight.preBg, `raw=${themeLight.rawBg} pre=${themeLight.preBg}`);
+check('theme: chips dropped the solid accent button fill', themeLight.chipBg !== themeLight.accentBg, `chip=${themeLight.chipBg} accent=${themeLight.accentBg}`);
+check('theme: #badge draws the accent token', themeLight.badgeBg === themeLight.accentBg, `badge=${themeLight.badgeBg} accent=${themeLight.accentBg}`);
+check('theme: machine rows are mono, prose is not', /mono|menlo|consolas/i.test(themeLight.toolFont) && !/mono|menlo|consolas/i.test(themeLight.assistFont), `${themeLight.toolFont} | ${themeLight.assistFont}`);
+
+for (const [label, p] of Object.entries(themeLight.contrast)) {
+  check(`theme light: ${label} colours resolved`, !!(p && p.fg && p.bg), JSON.stringify(p));
+  if (p && p.fg && p.bg) checkContrast(`theme light: ${label}`, p.fg, p.bg);
+}
+
+// Same measurements with the manual dark toggle engaged. Dark is a token
+// redefinition only, so every rule above must still hold.
+await sidebar.evaluate(() => {
+  document.documentElement.dataset.theme = 'dark';
+});
+const themeDark = await readThemeCoverage();
+check('theme: dark toggle applied', themeDark.theme === 'dark', String(themeDark.theme));
+const stripesDark = [themeDark.stripePending, themeDark.stripeOk, themeDark.stripeLost, themeDark.stripeErr];
+check(
+  'theme dark: stripe still wired to the status class',
+  stripesDark.every(Boolean) && new Set(stripesDark).size === 4,
+  JSON.stringify(stripesDark),
+);
+check('theme dark: tokens actually changed (not stuck on the light palette)', themeDark.evBg !== themeLight.evBg && themeDark.badgeBg !== themeLight.badgeBg, `ev ${themeLight.evBg}->${themeDark.evBg} badge ${themeLight.badgeBg}->${themeDark.badgeBg}`);
+for (const [label, p] of Object.entries(themeDark.contrast)) {
+  check(`theme dark: ${label} colours resolved`, !!(p && p.fg && p.bg), JSON.stringify(p));
+  if (p && p.fg && p.bg) checkContrast(`theme dark: ${label}`, p.fg, p.bg);
+}
+await sidebar.evaluate(() => {
+  delete document.documentElement.dataset.theme;
+});
+// Calm by default (context.md#Governing principle): an empty Transcript shows
+// no panel at all. transcript.js always mounts a .t-flow wrapper, so the rule
+// keys off an empty flow rather than :empty — worth asserting, because the
+// obvious :empty version is silently dead.
+const emptyPanel = await sidebar.evaluate(async () => {
+  await (await import('./transcript.js')).reset();
+  const el = document.getElementById('transcript');
+  return { display: getComputedStyle(el).display, kids: el.querySelectorAll('.t-flow > *').length };
+});
+check('theme: empty Transcript renders no panel', emptyPanel.display === 'none' && emptyPanel.kids === 0, JSON.stringify(emptyPanel));
+
+// ---------------------------------------------------------------------------
+// Capability canary: what the Chrome Origin Trial actually puts on
+// `annotations` (docs/adr/0004-forward-destructive-hint.md).
+//
+// page3.html registers four tools whose page-side declarations and
+// sidebar.js#isDestructive verdicts deliberately DISAGREE, so nothing here can
+// pass by coincidence. The headline assertion checks that `destructiveHint` is
+// still absent — it asserts the absence of a platform feature, and is EXPECTED
+// TO FAIL the day Chrome ships it. That failure is the signal to revisit the
+// ADR, not something to loosen away.
+// ---------------------------------------------------------------------------
+await demo.bringToFront();
+await demo.goto(`${BASE}/page3.html`);
+await sidebar.bringToFront();
+await waitSidebar(() => [...document.querySelectorAll('#toolNames option')].some((o) => o.textContent.includes('charge_card')), 20000);
+await ensureAssistant();
+
+// Read the OT in the page's own world, upstream of the extension entirely, so a
+// null here cannot be blamed on content.js.
+const otExposes = await demo.evaluate(async () => {
+  const tools = await document.modelContext.getTools();
+  const pick = (name) => tools.find((t) => t.name === name);
+  const keysOf = (t) => (t && t.annotations ? Object.keys(t.annotations).sort() : null);
+  return {
+    names: tools.map((t) => t.name).sort(),
+    chargeCardKeys: keysOf(pick('charge_card')),
+    chargeCardDestructive: pick('charge_card')?.annotations?.destructiveHint ?? null,
+    surveyDestructive: pick('submit_survey')?.annotations?.destructiveHint ?? null,
+    deleteDraftReadOnly: pick('delete_draft')?.annotations?.readOnlyHint ?? null,
+  };
+});
+
+check(
+  'OT canary: annotations carries readOnlyHint (the hint the design relies on)',
+  otExposes.deleteDraftReadOnly === true,
+  JSON.stringify(otExposes),
+);
+check(
+  'OT canary: annotations exposes ONLY readOnlyHint + untrustedContentHint',
+  JSON.stringify(otExposes.chargeCardKeys) === JSON.stringify(['readOnlyHint', 'untrustedContentHint']),
+  `charge_card declared destructiveHint:true; getTools() returned keys ${JSON.stringify(otExposes.chargeCardKeys)}`,
+);
+check(
+  'OT canary: destructiveHint still absent — see docs/adr/0004 before "fixing" this',
+  otExposes.chargeCardDestructive === null && otExposes.surveyDestructive === null,
+  `If these are non-null, Chrome now exposes destructiveHint: revisit ADR-0004. ${JSON.stringify(otExposes)}`,
+);
+
+// Given that gap, these pin down exactly how much the marker can and cannot do.
+const annotated = await sidebar.evaluate(() => ({
+  chips: Object.fromEntries(
+    [...document.querySelectorAll('#chips .chip')].map((c) => [c.dataset.tool, c.className.includes('dstr')]),
+  ),
+  flags: Object.fromEntries(
+    [...document.querySelectorAll('#chips .chip')].map((c) => [c.dataset.tool, c.textContent.startsWith('❗')]),
+  ),
+}));
+
+check('destructive: readOnlyHint CLEARS a delete-shaped name', annotated.chips.delete_draft === false, JSON.stringify(annotated));
+check('destructive: heuristic still flags a submit-shaped name', annotated.chips.submit_survey === true && annotated.flags.submit_survey === true, JSON.stringify(annotated));
+check('destructive: undeclared, benign-named tool is not flagged', annotated.chips.wipe_cache === false, JSON.stringify(annotated));
+// The documented limitation, asserted so it stays documented: a page declaring
+// destructiveHint:true gets NO marker, because the declaration never arrives.
+check(
+  'destructive: KNOWN GAP — a page cannot flag its own tool (declaration unreachable)',
+  annotated.chips.charge_card === false,
+  `charge_card declares destructiveHint:true and is still unflagged: ${JSON.stringify(annotated)}`,
+);
+
+// The Inspector table must show the two real hints and nothing invented.
+await ensureInspector();
+const annotationColumns = await sidebar.evaluate(() => {
+  const heads = [...document.querySelectorAll('#tableHeaderRow th')].map((t) => t.textContent);
+  const nameCol = heads.indexOf('name');
+  const roCol = heads.indexOf('readOnlyHint');
+  const rows = [...document.querySelectorAll('#tableBody tr')].map((r) => {
+    const cells = [...r.children].map((c) => c.textContent.trim());
+    return [cells[nameCol], cells[roCol]];
+  });
+  return { heads, readOnly: Object.fromEntries(rows) };
+});
+check('Inspector: no destructiveHint column (nothing populates it)', !annotationColumns.heads.includes('destructiveHint'), JSON.stringify(annotationColumns.heads));
+check('Inspector: readOnlyHint column reflects the declaration', annotationColumns.readOnly.delete_draft === '✓', JSON.stringify(annotationColumns.readOnly));
+// Undeclared cells render blank, not the string "undefined": an absent hint
+// arrives as a missing key, and textContent stringifies undefined.
+check('Inspector: an undeclared hint renders blank, not "undefined"', annotationColumns.readOnly.wipe_cache === '', JSON.stringify(annotationColumns.readOnly));
+await ensureAssistant();
 
 await context.close();
 server.close();

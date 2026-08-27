@@ -80,6 +80,36 @@ Rules:
 - Renders from the Event model only. It never reads agent state directly.
 - Collapsed by default; every Event expandable to raw.
 - Cleared by the existing Reset control.
+- **Prose is the model talking; bordered rows are the machine acting.** The user
+  must be able to follow the whole run by reading only the tool-call rows.
+
+Implementation notes — the DOM contract, as built:
+
+```
+#transcript
+  .t-flow                                  <- the ordered Event stream
+    .t-user | .t-assist | .t-error | .t-warning
+    details.t-ev[.ok|.lost|.err][.dstr]    <- ONE tool call = one <details>
+      summary                              <- everything readable while COLLAPSED
+        .t-head                            <- flex row
+          .who "MCP" · .tool "✓ name" · .state "ok" · .dstr-flag · .ms · .chev
+        .precis                            <- one-line argument precis
+        .t-evidence                        <- populated on a Lost result only
+      .t-raw > dl.t-kv                     <- hidden until opened
+```
+
+**`.precis` and `.t-evidence` live INSIDE `<summary>`.** This is not a style
+choice. Chrome hides non-summary `<details>` children with
+`::details-content { content-visibility: hidden }`, which a child's own
+`display: block` cannot override — so anything that must read while collapsed
+has to be inside `<summary>`. An earlier draft of this contract placed `.precis`
+as a sibling *after* `<summary>`; that shape cannot work, and two separate
+assertions passed against it because they measured presence and `display`
+instead of `checkVisibility()`. Measure collapsed-state visibility with
+`checkVisibility({ contentVisibilityAuto: true })` or not at all.
+
+Only `.t-raw` sits outside `<summary>`, which is what makes the native
+disclosure hide it.
 
 Related concepts:
 - Event, The seam
@@ -203,12 +233,32 @@ A registered tool whose execution has outward-facing side effects — submitting
 form, sending a lead, making a purchase.
 
 Rules:
-- Identified by a **name heuristic**: `*-submit`, `submit-*`, `delete`, `purchase`.
 - Flagged **visually only** — a marker on the Opener chip and on the Event. There
   is no interception, no gate, no confirmation.
-- The heuristic is a stopgap. The correct signal is the WebMCP `annotations` field
-  (`destructiveHint`), which pages currently leave unpopulated. When a page
-  populates it, read that first and keep the heuristic as fallback.
+- Resolved by two inputs, highest first:
+  1. `readOnlyHint: true` → not destructive. Authoritative.
+  2. A **name heuristic**: `*-submit`, `submit-*`, `delete`, `purchase`,
+     separator-agnostic (`-` and `_` both match, because real tools use hyphens
+     and the fixtures use underscores).
+- Status and destructiveness are **separate visual channels** and must stay
+  separate — a call can be both `ok` and destructive. Status is the stripe on
+  `.t-ev`; destructiveness is the `.dstr-flag` pill.
+
+**The known gap: annotations can CLEAR a marker but not SET one.**
+`destructiveHint` is not consulted because it cannot be. The Chrome Origin Trial
+puts exactly two keys on `annotations` — `readOnlyHint` and
+`untrustedContentHint` — and **silently drops `destructiveHint`**, so a page that
+correctly declares its own dangerous tools is invisible to any extension. This is
+measured, not assumed: `test/site/page3.html` registers a tool with
+`annotations: { destructiveHint: true }`, and `document.modelContext.getTools()`
+returns `annotations` with those two keys and no third. Forwarding it through
+`content.js` was implemented and reverted — see
+docs/adr/0004-forward-destructive-hint.md. The e2e suite carries a **capability
+canary** that asserts the field is still absent and will go red the day Chrome
+ships it.
+
+This also explains something that looks like an upstream oversight and is not:
+upstream forwards two hints because two is all the platform offers.
 
 Implementation notes:
 - Live examples on optimizely.com, all wired to real pipelines:
@@ -223,7 +273,9 @@ Implementation notes:
   checked**. Do not treat `annotations` as known-absent in v8; re-verify before
   relying on the heuristic being permanent.
 - Populating `annotations` in Optimizely's own snippet is a **product action item**,
-  tracked outside this repo (in `~/Code/web-mcp/`).
+  tracked outside this repo (in `~/Code/web-mcp/`). It is no longer a blocker for
+  this repo: as of ADR-0004 a page that populates `destructiveHint` is honoured
+  the moment it ships, with no extension change.
 
 Related concepts:
 - Opener chip, Event
@@ -295,6 +347,14 @@ Implementation notes — the frozen token values:
   original dark disabled value and was **rejected at 3.76:1**.
 - Accent is violet, deliberately not green: in this tool green means *passed*, so a green
   accent would collide with the `ok` state.
+- **No token beyond the 15 above.** Every tint the Transcript needs — status-tinted row
+  backgrounds, the MCP tag, the destructive pill, the user bubble — is derived with
+  `color-mix(in srgb, var(--token) N%, var(--surface))`, never a new literal. That is why
+  the table stays frozen: adding a literal would need re-verification, a mix does not.
+  The e2e suite measures every derived pair's contrast in both themes.
+- **Two orthogonal channels, never merged.** Status → the left stripe on `.t-ev` plus the
+  `.state` word. Destructive → the `.dstr-flag` pill. A call can be `ok` *and* destructive,
+  so sharing one channel would make one of them unreadable.
 
 Related concepts:
 - Transcript, Event, Destructive tool, Tracking fork

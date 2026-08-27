@@ -307,3 +307,350 @@ dialog::backdrop {
 .form-group button + button {
   margin-left: var(--gap);
 }
+
+/* ================================================================== *
+ * Direction B over the Assistant-mode markup (issues 0001-0005).
+ *
+ * The block above was authored against upstream's DOM only — it predates
+ * the Transcript, the opener chips and the two-mode strip, so Direction B
+ * did not reach any of them. This section closes that gap.
+ *
+ * Two orthogonal visual encodings, deliberately kept separate:
+ *   - STATUS  (ok / lost / err / pending) -> the left stripe on .t-ev,
+ *     plus the .state word. Never colour alone: transcript.js always
+ *     renders an icon and a word beside it.
+ *   - DESTRUCTIVE -> the .dstr-flag pill (and .chip.dstr outline).
+ *     A tool can be both `ok` and destructive, so these must not share a
+ *     channel.
+ *
+ * No new colour literals. Every tint is a color-mix() derived from the
+ * frozen tokens, the same technique the zebra row above already uses, so
+ * nothing here needs re-verifying against context.md § Direction B.
+ * ================================================================== */
+
+/* ---- The mode strip ---- */
+
+#strip {
+  gap: var(--gap);
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+#badge {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.45rem;
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--onaccent);
+}
+
+/* Segmented control: the two tabs read as one object, so the shared edge
+   collapses and only the outer corners are round. */
+#modes button {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.7rem;
+  border-radius: 0;
+  outline: 1px solid var(--rule);
+  outline-offset: -1px;
+}
+
+#modes button:first-child {
+  border-radius: var(--radius-control) 0 0 var(--radius-control);
+}
+
+#modes button:last-child {
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+}
+
+/* The inactive tab. styles.css:190 pins `background-color: unset
+   !important` on .secondary, so an inactive tab is necessarily
+   transparent — which is the correct segmented-control look anyway.
+   Only the text and the hairline need claiming back from --accent. */
+#modes button.secondary {
+  color: var(--muted);
+  outline-color: var(--rule);
+}
+
+#modes button.secondary:hover {
+  color: var(--ink);
+  text-decoration: none;
+  background-color: var(--thead);
+}
+
+/* ---- Opener chips (issue 0005) ---- */
+
+/* .chip is a <button>, so it inherits the solid accent fill from the
+   button rule above. A row of solid accent chips would out-shout the
+   Transcript, which is the thing being read: quiet outline by default. */
+#chips {
+  gap: 0.35rem;
+  margin-top: var(--gap);
+}
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background-color: var(--surface);
+  color: var(--muted);
+  outline: 1px solid var(--rule);
+  outline-offset: -1px;
+}
+
+.chip:hover {
+  filter: none;
+  background-color: var(--thead);
+  color: var(--ink);
+  outline-color: var(--accent);
+}
+
+.chip.dstr {
+  color: var(--err);
+  outline-color: color-mix(in srgb, var(--err) 45%, var(--rule));
+  background-color: color-mix(in srgb, var(--err) 7%, var(--surface));
+}
+
+.chip.dstr:hover {
+  color: var(--err);
+  background-color: color-mix(in srgb, var(--err) 14%, var(--surface));
+  outline-color: var(--err);
+}
+
+/* ---- The Transcript panel (issue 0001) ---- */
+
+#transcript {
+  margin-top: var(--gap);
+  padding: 0.7rem;
+  max-height: 55vh;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-panel);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+/* transcript.js always mounts a .t-flow wrapper, so #transcript is never
+   literally :empty — the calm-by-default state is "flow has no Events". */
+#transcript:has(.t-flow:empty) {
+  display: none;
+}
+
+#transcript .t-flow {
+  gap: 0.55rem;
+}
+
+/* Prose is the model talking (context.md#Transcript). Body face, no
+   border, so it reads differently from the machine rows below. */
+#transcript .t-user {
+  font-family: var(--font-ui);
+  max-width: 85%;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--ink);
+}
+
+#transcript .t-assist {
+  font-family: var(--font-ui);
+  color: var(--ink);
+}
+
+#transcript .t-error,
+#transcript .t-warning {
+  font-family: var(--font-ui);
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-control);
+}
+
+#transcript .t-error {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 8%, var(--surface));
+}
+
+#transcript .t-warning {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface));
+}
+
+/* ---- One tool call = one .t-ev row ---- */
+
+/* The stripe IS the status channel (issue 0001: "status carried by a
+   class on .t-ev, never by an inline colour"). The base value is the
+   pending colour; each status class below re-points the same property. */
+#transcript details.t-ev {
+  --stripe: var(--muted);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--stripe);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  background: color-mix(in srgb, var(--ground) 60%, var(--surface));
+  overflow: hidden;
+}
+
+#transcript details.t-ev.ok {
+  --stripe: var(--ok);
+}
+
+#transcript details.t-ev.lost {
+  --stripe: var(--warn);
+  background: color-mix(in srgb, var(--warn) 7%, var(--surface));
+}
+
+#transcript details.t-ev.err {
+  --stripe: var(--err);
+  background: color-mix(in srgb, var(--err) 7%, var(--surface));
+}
+
+#transcript details.t-ev > summary {
+  padding: 0.4rem 0.55rem;
+}
+
+#transcript details.t-ev > summary:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+#transcript details.t-ev > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* MCP tag: the thing that makes machine rows scannable at a glance. */
+#transcript .t-ev .who {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+  /* 12%, not 16%: at 16% the dark pairing measured 4.84:1 — passing, but with
+     almost no headroom for a 9px uppercase label. A lighter tint moves it to
+     ~5.3:1 without changing the palette. */
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+}
+
+#transcript .t-ev .tool {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+#transcript .t-ev .state {
+  font-family: var(--font-ui);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--stripe);
+}
+
+#transcript .t-ev .ms {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+#transcript .t-ev .chev {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  transition: transform 120ms ease;
+}
+
+/* Destructive is its OWN channel — a pill, not the stripe — because a
+   call can be both `ok` and destructive. Flagged only; nothing is
+   intercepted (context.md#Destructive tool). */
+#transcript .t-ev .dstr-flag {
+  flex: none;
+  font-family: var(--font-ui);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, var(--surface));
+  outline: 1px solid color-mix(in srgb, var(--err) 40%, var(--rule));
+  outline-offset: -1px;
+}
+
+/* ---- Collapsed-state detail: precis and evidence ---- */
+
+/* Both live inside <summary> (Chrome hides everything else via
+   ::details-content) and are indented to hang under the tool name. */
+#transcript .t-ev .precis {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--muted);
+  margin-top: 0.2rem;
+  padding-left: 2.1rem;
+  overflow-wrap: anywhere;
+}
+
+#transcript .t-ev .precis:empty {
+  display: none;
+}
+
+#transcript .t-ev .t-evidence {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--warn);
+  margin-top: 0.3rem;
+  padding-left: 2.1rem;
+  overflow-wrap: anywhere;
+}
+
+#transcript .t-ev .t-evidence:empty {
+  display: none;
+}
+
+#transcript .t-ev .t-evidence span:first-child {
+  font-weight: 600;
+}
+
+/* ---- Expand to raw (issue 0003) ---- */
+
+#transcript .t-ev .t-raw {
+  margin: 0 0.55rem 0.55rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--prebg);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+}
+
+#transcript .t-kv dt {
+  font-family: var(--font-ui);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#transcript .t-kv dd {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* "identical" / "unchanged": true but uninteresting, so it recedes. */
+#transcript .t-kv dd.same {
+  color: var(--muted);
+  font-style: italic;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #transcript .t-ev .chev {
+    transition: none;
+  }
+}

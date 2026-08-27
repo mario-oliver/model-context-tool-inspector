@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<!--
+ Copyright 2026 Mario Oliver
+ SPDX-License-Identifier: Apache-2.0
+
+ Annotation fixture for docs/adr/0004-forward-destructive-hint.md.
+
+ A NEW file rather than an edit to page1.html: test/site/ is upstream's, and
+ ADR-0001 prefers adding files over widening the merge surface.
+
+ Each tool below sets up a case where the page's declaration and the name
+ heuristic in sidebar.js#isDestructive DISAGREE, so a passing assertion can
+ only mean the declaration was honoured.
+-->
+
+<html>
+<head><title>WebMCP annotation fixture</title></head>
+<body>
+<h1>annotations</h1>
+
+<script>
+  // Declared destructive, name says otherwise. Before ADR-0004 this could not
+  // be flagged at all: content.js dropped destructiveHint at the boundary.
+  document.modelContext.registerTool({
+    name: 'charge_card',
+    description: 'Declares destructiveHint: true; the name matches no heuristic',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { destructiveHint: true },
+    async execute() {
+      return 'charged';
+    },
+  });
+
+  // Declared NOT destructive, submit-shaped name. The declaration must overrule
+  // the heuristic — which is why the forwarded value is tri-state and not
+  // `? '✓' : undefined`.
+  document.modelContext.registerTool({
+    name: 'submit_survey',
+    description: 'Declares destructiveHint: false despite a submit-shaped name',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { destructiveHint: false },
+    async execute() {
+      return 'submitted';
+    },
+  });
+
+  // Contradictory annotations. readOnlyHint wins: per MCP, destructiveHint is
+  // only meaningful when readOnlyHint is false.
+  document.modelContext.registerTool({
+    name: 'delete_draft',
+    description: 'Declares both readOnlyHint and destructiveHint true',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: { readOnlyHint: true, destructiveHint: true },
+    async execute() {
+      return 'nothing happened';
+    },
+  });
+
+  // No annotations, no heuristic match: the undeclared baseline. Must NOT be
+  // flagged — MCP defaults destructiveHint to true, and ADR-0004 deliberately
+  // does not apply that default.
+  document.modelContext.registerTool({
+    name: 'wipe_cache',
+    description: 'Declares no annotations at all',
+    inputSchema: { type: 'object', properties: {} },
+    async execute() {
+      return 'unchanged';
+    },
+  });
+</script>
+</body>
+</html>
