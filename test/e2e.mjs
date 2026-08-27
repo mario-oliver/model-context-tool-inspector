@@ -147,7 +147,20 @@ await sidebar.waitForLoadState('load');
 const waitSidebar = (fn, timeout = 10000) => sidebar.waitForFunction(fn, null, { timeout, polling: 120 });
 const toolResults = () => sidebar.$eval('#toolResults', (el) => el.textContent);
 
+// Issue 0004: Inspector mode is hidden by default now, and Playwright's
+// click/fill/selectOption all enforce visibility — so switch modes first.
+async function ensureInspector() {
+  await sidebar.click('#modeInspector');
+  await waitSidebar(() => !document.getElementById('mode-inspector').hasAttribute('hidden'));
+}
+
+async function ensureAssistant() {
+  await sidebar.click('#modeAssistant');
+  await waitSidebar(() => !document.getElementById('mode-assistant').hasAttribute('hidden'));
+}
+
 async function runTool(name, args) {
+  await ensureInspector();
   await sidebar.selectOption('#toolNames', { value: name });
   await sidebar.fill('#inputArgsText', JSON.stringify(args));
   await sidebar.click('#executeBtn');
@@ -162,6 +175,96 @@ async function backToPage1() {
   await demo.goto(`${BASE}/page1.html`);
   await waitSidebar(() => document.querySelectorAll('#toolNames option').length >= 6);
 }
+
+// Issue 0001: transcript.js renders a hand-written fixture covering all five
+// Event kinds with no API key set and no network access. Run this first,
+// before apiKeyBtn is ever clicked and before any request to Gemini could
+// possibly have been made, so "no network access" is provable rather than
+// asserted.
+async function getTranscriptEvents() {
+  return sidebar.evaluate(async () => (await import('./transcript.js')).getEvents());
+}
+
+const transcriptFixtureRequests = [];
+const trackTranscriptFixtureRequests = (req) => transcriptFixtureRequests.push(req.url());
+sidebar.on('request', trackTranscriptFixtureRequests);
+
+const fixture = await sidebar.evaluate(async () => {
+  const T = await import('./transcript.js');
+  T.reset();
+  T.append('user', { text: 'What is 2 + 3?' });
+  const ok = T.append('toolCall', {
+    toolName: 'add_numbers',
+    frameId: 0,
+    proposedArgs: { a: 2, b: 3 },
+    sentArgs: { a: 2, b: 3 },
+  });
+  T.update(ok, { status: 'ok', result: 'sum is 5' });
+  const err = T.append('toolCall', {
+    toolName: 'optimizely-submit-demo-request-submit',
+    frameId: 0,
+    proposedArgs: {},
+    sentArgs: {},
+  });
+  T.update(err, { status: 'error', errorMessage: 'boom' });
+  T.append('assistant', { text: 'The sum is 5.' });
+  T.append('warning', { text: 'AI response has no text: []' });
+  T.append('error', { text: 'Error: network down' });
+
+  const root = document.getElementById('transcript');
+  const evs = [...root.querySelectorAll('details.t-ev')];
+  return {
+    precisVisible: (() => { const el = document.querySelector('#transcript details.t-ev .precis'); return el ? el.checkVisibility({ contentVisibilityAuto: true }) : null; })(),
+    hasFlow: !!root.querySelector('.t-flow'),
+    userCount: root.querySelectorAll('.t-user').length,
+    userText: root.querySelector('.t-user')?.textContent || '',
+    assistCount: root.querySelectorAll('.t-assist').length,
+    assistText: root.querySelector('.t-assist')?.textContent || '',
+    errCount: root.querySelectorAll('.t-error').length,
+    warnCount: root.querySelectorAll('.t-warning').length,
+    evCount: evs.length,
+    evClasses: evs.map((e) => e.className),
+    evStructure: evs.map((e) => ({
+      who: e.querySelector('summary .who')?.textContent,
+      tool: e.querySelector('summary .tool')?.textContent,
+      hasMs: !!e.querySelector('summary .ms'),
+      hasChev: !!e.querySelector('summary .chev'),
+      precis: e.querySelector(':scope > .precis')?.textContent,
+      // .t-evidence moved inside <summary> so it reads while collapsed; it is no
+      // longer a direct child of <details>.
+      hasEvidence: !!e.querySelector('.t-evidence'),
+      hasRawKv: !!e.querySelector(':scope > .t-raw > dl.t-kv'),
+    })),
+  };
+});
+
+sidebar.off('request', trackTranscriptFixtureRequests);
+// Leave the store clean for the tool-listing / Inspector-mode checks below.
+await sidebar.evaluate(async () => (await import('./transcript.js')).reset());
+
+check('transcript fixture: renders with no network requests', transcriptFixtureRequests.length === 0, transcriptFixtureRequests.join(', '));
+check('transcript fixture: #transcript > .t-flow present', fixture.hasFlow);
+check('transcript fixture: exactly one .t-user', fixture.userCount === 1 && fixture.userText.includes('What is 2 + 3?'), fixture.userText);
+check('transcript fixture: exactly one .t-assist', fixture.assistCount === 1 && fixture.assistText.includes('The sum is 5.'), fixture.assistText);
+check('transcript fixture: one .t-error and one .t-warning', fixture.errCount === 1 && fixture.warnCount === 1, `err=${fixture.errCount} warn=${fixture.warnCount}`);
+check('transcript fixture: one details.t-ev per tool call (2)', fixture.evCount === 2, JSON.stringify(fixture.evClasses));
+check('transcript fixture: status carried as a class, ok then err', (fixture.evClasses[0] || '').includes('ok') && (fixture.evClasses[1] || '').includes('err'), JSON.stringify(fixture.evClasses));
+check(
+  'transcript fixture: summary has who/tool/ms/chev, icon agrees with ok class',
+  fixture.evStructure[0]?.who === 'MCP' &&
+    fixture.evStructure[0]?.tool.includes('✓') &&
+    fixture.evStructure[0]?.tool.includes('add_numbers') &&
+    fixture.evStructure[0]?.hasMs &&
+    fixture.evStructure[0]?.hasChev,
+  JSON.stringify(fixture.evStructure[0]),
+);
+check('transcript fixture: icon agrees with err class', fixture.evStructure[1]?.tool.includes('✗'), JSON.stringify(fixture.evStructure[1]));
+check('transcript fixture: .precis is genuinely VISIBLE while collapsed', fixture.precisVisible === true, `visible=${fixture.precisVisible}`);
+check(
+  'transcript fixture: .t-evidence and .t-raw > dl.t-kv reserved but empty',
+  fixture.evStructure.every((s) => s.hasEvidence && s.hasRawKv),
+  JSON.stringify(fixture.evStructure),
+);
 
 // All six tools listed (5 top-level + 1 in the iframe)
 await waitSidebar(() => document.querySelectorAll('#toolNames option').length >= 6);
@@ -201,6 +304,144 @@ await demo.bringToFront();
 await runTool('add_numbers', { a: 2, b: 3 });
 await waitSidebar(() => document.getElementById('toolResults').textContent !== '');
 check('script tool fast path', (await toolResults()) === 'sum is 5', `result="${await toolResults()}"`);
+
+// Issue 0001: a real agent run, through promptAI()'s real unchanged control
+// flow, produces typed Events. The Gemini HTTP endpoint is intercepted so
+// the run is deterministic and needs no real API key or network egress; the
+// tool call itself (add_numbers) executes for real against page1.html.
+let scriptedGeminiResponses = [];
+await sidebar.route(/generativelanguage\.googleapis\.com/, async (route) => {
+  if (route.request().method() === 'OPTIONS') {
+    await route.fulfill({ status: 204 });
+    return;
+  }
+  const next = scriptedGeminiResponses.shift();
+  if (!next) {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ candidates: [{ content: { parts: [{ text: '' }] } }] }),
+    });
+    return;
+  }
+  if (next.fail) {
+    // A non-2xx status here would make Chrome itself log a "Failed to load
+    // resource" console.error for what is, from the browser's point of
+    // view, a real failed fetch — even though it's our own mocked response.
+    // That would trip the "no console errors" gate for a failure we asked
+    // for. Stay 200 and break the SDK's own JSON parsing instead: still an
+    // uncaught rejection out of chat.sendMessage(), caught by promptAI()'s
+    // caller exactly like a real thrown loop error would be.
+    await route.fulfill({ status: 200, contentType: 'application/json', body: 'not valid json' });
+    return;
+  }
+  await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(next.body) });
+});
+
+sidebar.once('dialog', (dialog) => dialog.accept('test-key'));
+await ensureAssistant();
+await sidebar.click('#apiKeyBtn');
+await waitSidebar(() => !document.getElementById('promptBtn').disabled);
+
+scriptedGeminiResponses = [
+  {
+    body: {
+      candidates: [{ content: { parts: [{ functionCall: { name: '_0_add_numbers', args: { a: 4, b: 5 } } }] } }],
+    },
+  },
+  { body: { candidates: [{ content: { parts: [{ text: 'The sum is 9.' }] } }] } },
+];
+await ensureAssistant();
+await sidebar.fill('#userPromptText', 'What is 4 plus 5?');
+await sidebar.click('#promptBtn');
+await waitSidebar(() => document.querySelectorAll('#transcript .t-assist').length >= 1, 20000);
+
+let transcriptEvents = await getTranscriptEvents();
+let userEvents = transcriptEvents.filter((e) => e.kind === 'user');
+let assistantEvents = transcriptEvents.filter((e) => e.kind === 'assistant');
+let toolCallEvents = transcriptEvents.filter((e) => e.kind === 'toolCall');
+check(
+  'agent run: exactly one user Event',
+  userEvents.length === 1 && userEvents[0].text === 'What is 4 plus 5?',
+  JSON.stringify(userEvents),
+);
+check(
+  'agent run: exactly one assistant Event',
+  assistantEvents.length === 1 && assistantEvents[0].text === 'The sum is 9.',
+  JSON.stringify(assistantEvents),
+);
+check(
+  'agent run: toolCall Event for add_numbers is ok with the verbatim result',
+  toolCallEvents.length === 1 &&
+    toolCallEvents[0].toolName === 'add_numbers' &&
+    toolCallEvents[0].status === 'ok' &&
+    toolCallEvents[0].result === 'sum is 9',
+  JSON.stringify(toolCallEvents),
+);
+
+const toolDom = await sidebar.evaluate(() => {
+  const el = document.querySelector('#transcript details.t-ev');
+  return (
+    el && {
+      className: el.className,
+      tool: el.querySelector('summary .tool')?.textContent,
+      who: el.querySelector('summary .who')?.textContent,
+    }
+  );
+});
+check(
+  'agent run: rendered details.t-ev.ok carries the resolved status and icon',
+  toolDom?.className.includes('t-ev') &&
+    toolDom.className.includes('ok') &&
+    toolDom.who === 'MCP' &&
+    toolDom.tool.includes('✓') &&
+    toolDom.tool.includes('add_numbers'),
+  JSON.stringify(toolDom),
+);
+
+// Reset clears both the Event store and the rendered Transcript.
+await ensureAssistant();
+await sidebar.click('#resetBtn');
+const eventsAfterReset = await getTranscriptEvents();
+const domAfterReset = await sidebar.$eval(
+  '#transcript',
+  (el) => el.querySelectorAll('.t-user, .t-assist, .t-ev, .t-error, .t-warning').length,
+);
+check('Reset clears all Events', eventsAfterReset.length === 0, JSON.stringify(eventsAfterReset));
+check('Reset clears the rendered Transcript', domAfterReset === 0, `remaining=${domAfterReset}`);
+
+// A thrown loop error — the promptBtn.onclick catch site, the sixth
+// logPrompt() call site — produces exactly one error Event and nothing else.
+scriptedGeminiResponses = [{ fail: true }];
+await ensureAssistant();
+await sidebar.fill('#userPromptText', 'this call will fail');
+await sidebar.click('#promptBtn');
+await waitSidebar(() => document.querySelectorAll('#transcript .t-error').length >= 1, 15000);
+
+transcriptEvents = await getTranscriptEvents();
+const errorEvents = transcriptEvents.filter((e) => e.kind === 'error');
+check('thrown loop error produces exactly one error Event', errorEvents.length === 1, JSON.stringify(errorEvents));
+check(
+  'thrown loop error adds no toolCall or assistant Event',
+  transcriptEvents.filter((e) => e.kind === 'toolCall' || e.kind === 'assistant').length === 0,
+  JSON.stringify(transcriptEvents),
+);
+
+await ensureAssistant();
+await sidebar.click('#resetBtn');
+
+// Restore pre-test state before unrouting: clear the fake API key through
+// the real apiKeyBtn flow (empty string -> initGenAI() sets genAI back to
+// undefined). Later tests navigate the demo tab repeatedly, which triggers
+// sidebar.js's own haveNewTools -> suggestUserPrompt() side effect; without
+// this, that would fire an unmocked, real request once the route below is
+// removed, using an invalid key and failing the "no console errors" check.
+sidebar.once('dialog', (dialog) => dialog.accept(''));
+await ensureAssistant();
+await sidebar.click('#apiKeyBtn');
+await waitSidebar(() => document.getElementById('promptBtn').disabled);
+
+await sidebar.unroute(/generativelanguage\.googleapis\.com/);
 
 // Iframe script tool (exercises the frameId relay)
 await runTool('echo_frame', {});
@@ -243,8 +484,145 @@ check('no-tools page shows empty state', true);
 const relevantErrors = consoleErrors.filter((e) => !e.includes('net::'));
 check('no console errors', relevantErrors.length === 0, relevantErrors.join(' | ') || 'clean');
 
+// ---------------------------------------------------------------------------
+// Issues 0002 / 0003: lost-result evidence and expand-to-raw, proven against a
+// hand-written fixture. The classification itself is unit-level (a narrow regex
+// on Chrome's cross-origin message); reproducing that error end-to-end would
+// need a second origin, which this single-origin fixture server cannot provide.
+// See the note in the run summary.
+// ---------------------------------------------------------------------------
+// #transcript lives inside #mode-assistant, so visibility can only be measured
+// with Assistant mode showing — runTool() above left us in Inspector mode.
+await ensureAssistant();
+const raw = await sidebar.evaluate(async () => {
+  const T = await import('./transcript.js');
+  T.reset();
+  T.append('toolCall', {
+    toolName: 'search-optimizely-site',
+    status: 'lost',
+    errorMessage: 'Cannot return tool results after a cross-origin navigation',
+    frameId: 0,
+    urlBefore: '/search?topic=AI&product=Opal',
+    urlAfter: '/?search=Opal',
+    durationMs: 1240,
+    proposedArgs: { query: 'Opal' },
+    sentArgs: { query: 'Opal' },
+    inputSchema: '{"type":"object"}',
+  });
+  T.append('toolCall', {
+    toolName: 'register-opticon-online-submit',
+    status: 'ok',
+    destructive: true,
+    frameId: 2,
+    result: 'ORDER-12345',
+    urlBefore: '/x',
+    urlAfter: '/x',
+    durationMs: 88,
+    proposedArgs: { a: 1 },
+    sentArgs: { a: 2 },
+  });
+  const evs = [...document.querySelectorAll('#transcript details.t-ev')];
+  const kv = (el) => {
+    const out = {};
+    const dl = el.querySelector('.t-kv');
+    const dts = [...dl.querySelectorAll('dt')];
+    const dds = [...dl.querySelectorAll('dd')];
+    dts.forEach((dt, i) => (out[dt.textContent] = dds[i]?.textContent));
+    return out;
+  };
+  // Chrome 150 hides <details> content via ::details-content / content-visibility,
+  // NOT display:none on children — so getComputedStyle().display reports 'block'
+  // for hidden content and is useless here. checkVisibility() is the real answer.
+  const visible = (el) => el.checkVisibility({ contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true });
+  return {
+    lostClass: evs[0].className,
+    hasHead: !!evs[0].querySelector('summary > .t-head'),
+    lostEvidence: evs[0].querySelector('.t-evidence').textContent,
+    lostEvidenceVisible: visible(evs[0].querySelector('.t-evidence')),
+    lostPrecisVisible: visible(evs[0].querySelector('.precis')),
+    lostStateLabel: evs[0].querySelector('.state')?.textContent,
+    lostRawVisibleClosed: visible(evs[0].querySelector('.t-raw')),
+    lostKv: kv(evs[0]),
+    dstrClass: evs[1].className,
+    dstrFlag: evs[1].querySelector('.dstr-flag')?.textContent,
+    dstrKv: kv(evs[1]),
+    dstrFrame: kv(evs[1]).frame,
+  };
+});
+await sidebar.evaluate(async () => (await import('./transcript.js')).reset());
+
+check('0002: summary carries a .t-head row', raw.hasHead === true, String(raw.hasHead));
+check('0002: lost carries the lost class, not err', /\blost\b/.test(raw.lostClass) && !/\berr\b/.test(raw.lostClass), raw.lostClass);
+check('0002: lost shows a text label, not colour alone', raw.lostStateLabel === 'lost', String(raw.lostStateLabel));
+check('0002: lost evidence names the cause', raw.lostEvidence.includes('result lost to navigation'), raw.lostEvidence);
+check('0002: lost evidence carries before AND after URLs', raw.lostEvidence.includes('/search?topic=AI&product=Opal') && raw.lostEvidence.includes('/?search=Opal'), raw.lostEvidence);
+check('0002: lost evidence reads WITHOUT expanding', raw.lostEvidenceVisible === true, `evidenceVisible=${raw.lostEvidenceVisible}`);
+check('0002: arg precis reads WITHOUT expanding', raw.lostPrecisVisible === true, `precisVisible=${raw.lostPrecisVisible}`);
+check('0002: raw table stays hidden while collapsed', raw.lostRawVisibleClosed === false, `rawVisible=${raw.lostRawVisibleClosed}`);
+check('0002: duration recorded', raw.lostKv.took === '1240ms', String(raw.lostKv.took));
+
+check('0003: expanded shows verbatim proposed args', raw.lostKv.proposed === '{"query":"Opal"}', String(raw.lostKv.proposed));
+check('0003: identical sent args marked identical', raw.lostKv.sent === 'identical', String(raw.lostKv.sent));
+check('0003: differing sent args shown verbatim', raw.dstrKv.proposed === '{"a":1}' && raw.dstrKv.sent === '{"a":2}', `${raw.dstrKv.proposed} / ${raw.dstrKv.sent}`);
+check('0003: verbatim result, byte for byte', raw.dstrKv.result === 'ORDER-12345', String(raw.dstrKv.result));
+check('0003: unchanged URL reported as unchanged', String(raw.dstrKv.url).startsWith('unchanged'), String(raw.dstrKv.url));
+check('0003: frame reported for a subframe call', raw.dstrFrame === 'frame 2', String(raw.dstrFrame));
+check('0003: top frame reported as top', raw.lostKv.frame === 'top (0)', String(raw.lostKv.frame));
+check('0003: declared schema surfaced', raw.lostKv.schema === '{"type":"object"}', String(raw.lostKv.schema));
+
+check('0005: destructive tool flagged on the Event', /\bdstr\b/.test(raw.dstrClass) && (raw.dstrFlag || '').includes('submit'), `${raw.dstrClass} / ${raw.dstrFlag}`);
+
+// ---------------------------------------------------------------------------
+// Issue 0004: two modes. Issue 0005: opener chips.
+// ---------------------------------------------------------------------------
+await backToPage1();
+await ensureAssistant();
+
+const modeState = await sidebar.evaluate(() => ({
+  assistantHidden: document.getElementById('mode-assistant').hasAttribute('hidden'),
+  inspectorHidden: document.getElementById('mode-inspector').hasAttribute('hidden'),
+  root: document.documentElement.dataset.mode,
+  stored: localStorage.getItem('mode'),
+  badge: document.getElementById('badge')?.textContent,
+  chips: [...document.querySelectorAll('#chips .chip')].map((c) => ({ t: c.dataset.tool, d: c.className.includes('dstr') })),
+  toolCount: document.querySelectorAll('#toolNames option').length,
+}));
+
+check('0004: Assistant mode is the default view', !modeState.assistantHidden && modeState.inspectorHidden, `assistantHidden=${modeState.assistantHidden} inspectorHidden=${modeState.inspectorHidden}`);
+check('0004: WebMCP badge present in the strip', modeState.badge === 'WebMCP', String(modeState.badge));
+check('0004: mode persisted to localStorage', modeState.stored === 'assistant', String(modeState.stored));
+
+await ensureInspector();
+const afterSwitch = await sidebar.evaluate(() => ({
+  assistantHidden: document.getElementById('mode-assistant').hasAttribute('hidden'),
+  inspectorHidden: document.getElementById('mode-inspector').hasAttribute('hidden'),
+  stored: localStorage.getItem('mode'),
+  tableVisible: getComputedStyle(document.getElementById('resultsTable')).display !== 'none',
+}));
+check('0004: switching reveals Inspector and hides Assistant', afterSwitch.inspectorHidden === false && afterSwitch.assistantHidden === true, JSON.stringify(afterSwitch));
+check('0004: Inspector switch persisted', afterSwitch.stored === 'inspector', String(afterSwitch.stored));
+check('0004: upstream tool table still renders in Inspector', afterSwitch.tableVisible);
+
+check('0005: one chip per registered tool', modeState.chips.length === modeState.toolCount && modeState.chips.length >= 6, `chips=${modeState.chips.length} tools=${modeState.toolCount}`);
+check('0005: submit-shaped tool flagged destructive', modeState.chips.some((c) => c.t === 'submit_order' && c.d), JSON.stringify(modeState.chips));
+check('0005: read tool not flagged destructive', modeState.chips.some((c) => c.t === 'add_numbers' && !c.d), JSON.stringify(modeState.chips));
+
+const clicked = await sidebar.evaluate(() => {
+  const before = document.querySelectorAll('#transcript details.t-ev').length;
+  document.querySelector('#chips .chip').click();
+  return { before, after: document.querySelectorAll('#transcript details.t-ev').length, prompt: document.getElementById('userPromptText').value };
+});
+check('0005: clicking a chip fills the composer and executes nothing', clicked.after === clicked.before && clicked.prompt.length > 0, JSON.stringify(clicked));
+
+const manifestName = await sidebar.evaluate(() => chrome.runtime.getManifest().name);
+check('0004: extension renamed', manifestName === 'AI Agent in Browser', manifestName);
+
+await ensureAssistant();
+
+
 await context.close();
 server.close();
+
 
 console.log(`\n${passes.length} passed, ${failures.length} failed`);
 process.exit(failures.length ? 1 : 0);
