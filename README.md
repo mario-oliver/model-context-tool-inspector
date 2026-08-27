@@ -1,53 +1,141 @@
 # WebMCP - Model Context Tool Inspector
 
-A Chrome Extension that allows developers to inspect, monitor, and execute WebMCP tools manually or with Gemini.
+A Chrome Extension that allows developers to inspect, monitor, and execute WebMCP
+tools manually or with Gemini.
+
+This is a **fork** of
+[beaufortfrancois/model-context-tool-inspector](https://github.com/beaufortfrancois/model-context-tool-inspector)
+(Apache-2.0). It adds a two-mode side panel: **Assistant mode** renders the agent
+run as a Transcript of tool calls, and **Inspector mode** is the original UI,
+unchanged. See `context.md` for the design language and `docs/adr/` for the
+decisions.
 
 ## Prerequisites
 
-**Important:**  You must enable the "WebMCP for testing" flag in `chrome://flags` to turn it on in Chrome 150.0.7861.0 or higher.
+1.  **Chrome 150.0.7861.0 or higher.** Check at `chrome://version`.
+2.  **The WebMCP flag.** Go to `chrome://flags`, search for `WebMCP`, set
+    **"WebMCP for testing"** to **Enabled**, and relaunch Chrome.
 
-## Installation
+WebMCP is behind an Origin Trial, so without that flag `document.modelContext`
+does not exist and the panel will report no tools on every page. This is the
+single most common reason the extension looks broken.
 
-You can install this extension either directly from the Chrome Web Store or manually from the source code.
+Optional: a [Gemini API key](https://aistudio.google.com/apikey) if you want
+Assistant mode to drive an agent. Listing tools, the opener chips and running a
+tool by hand all work without one — but the Transcript only fills from the agent
+loop, so it stays empty until a key is set.
 
-### Option 1: Chrome Web Store (recommended)
+## Install (load unpacked)
 
-Install the extension directly via the [Chrome Web Store](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd).
+The Chrome Web Store
+[listing](https://chromewebstore.google.com/detail/model-context-tool-inspec/gbpdfapgefenggkahomfgkhfehlcenpd)
+is the **upstream** extension, not this fork. To run this fork, load it unpacked.
 
-### Option 2: Install from source
+1.  **Clone the repository.**
 
-1.  **Download the Source:**
-    Clone this repository or download the source files into a directory.
+    ```bash
+    git clone https://github.com/mario-oliver/model-context-tool-inspector.git
+    cd model-context-tool-inspector
+    ```
 
-2.  **Install dependencies:**
-    In the directory, run `npm install`.
+2.  **Build the one bundled dependency.**
 
-3.  **Open Chrome Extensions:**
-    Navigate to `chrome://extensions/` in your browser address bar.
+    ```bash
+    npm install
+    ```
 
-4.  **Enable Developer Mode:**
-    Toggle the **Developer mode** switch in the top right corner of the Extensions page.
+    This is not optional. `sidebar.js` imports `./js-genai.js`, which is a
+    generated bundle of the Gemini SDK and is **not** committed — without this
+    step the side panel fails to load with a module resolution error.
 
-5.  **Load Unpacked:**
-    Click the **Load unpacked** button that appears in the top left. Select the directory containing `manifest.json` (the folder where you saved the files).
+    The `postinstall` script bundles the SDK and then deletes `node_modules`, so
+    a successful run leaves `js-genai.js` behind and no dependency tree. That is
+    intended, not a failed install.
+
+3.  **Open** `chrome://extensions/`.
+
+4.  **Enable Developer mode** — the toggle in the top right.
+
+5.  **Click Load unpacked** and select the repository folder, the one containing
+    `manifest.json`.
+
+6.  **Pin the extension** from the toolbar's puzzle-piece menu, so the action
+    icon is one click away.
+
+After editing any file, return to `chrome://extensions/` and press the **reload**
+arrow on the extension card. Changes to `sidebar.*`, `theme.*`, `transcript.js`,
+`markdown.js` and `mode.js` appear when the side panel is reopened; changes to
+`content.js` or `background.js` also need the target tab reloaded.
+
+## First run
+
+Public pages that register WebMCP tools are still scarce, so the repository
+includes a demo site to point the extension at.
+
+```bash
+cd test/site && python3 -m http.server 8000
+```
+
+Open `http://localhost:8000/page1.html`, then click the extension's action icon
+to open the **Side Panel**. You should see six tools listed.
+
+| Page | What it exercises |
+| --- | --- |
+| `page1.html` | six tools, including `submit_order` (flagged destructive) and `go_checkout` (navigates mid-call, producing a **lost result**) |
+| `page3.html` | tools whose `annotations` and names deliberately disagree — see `docs/adr/0004-forward-destructive-hint.md` |
+
+If the panel says no tools are registered, the WebMCP flag is almost certainly
+off — recheck step 2 of the prerequisites.
 
 ## Usage
 
-1.  **Navigate to a Page:**
-    Open a web page that exposes Model Context tools.
+The panel opens in **Assistant mode**. Switch modes with the tabs in the top
+strip; the choice persists.
 
-2.  **Open the Inspector:**
-    Click the extension's action icon (the puzzle piece or pinned icon) in the Chrome toolbar. This will open the **Side Panel**.
+### Assistant mode
 
-3.  **Inspect Tools:**
-    * The extension will inject a content script to query the page.
-    * A table will appear listing all available tools found on the page.
+* **Chips** — one per registered tool. Clicking one fills the composer with a
+  suggested prompt. It never executes anything.
+* **User Prompt → Send** — runs the agent loop. Requires a Gemini API key, set
+  via **Set Gemini API key**.
+* **Transcript** — the run as it happens. One bordered row per tool call,
+  carrying a status (`ok` / `error` / `lost`), the arguments, the duration and a
+  destructive marker where it applies. Click a row to expand it to the raw
+  schema, the proposed vs sent arguments, the verbatim result and the page URL
+  either side of the call.
+* **Reset** clears the Transcript. **Copy trace** copies the session for a bug
+  report.
+* **⚙ → Theme** switches between System, Light and Dark.
 
-4.  **Execute a Tool:**
-    * **Tool:** Select the desired tool from the dropdown menu.
-    * **Input Arguments:** Enter the arguments for the tool in the text area.
-        * *Note:* The input must be valid JSON (e.g., `{"text": "hello world"}`).
-    * Click **Execute Tool**.
+### Inspector mode
+
+The original UI, unchanged, and the fastest way to run a single tool:
+
+1.  **Tool** — pick one from the dropdown.
+2.  **Input Arguments** — valid JSON, e.g. `{"text": "hello world"}`.
+3.  Click **Execute Tool**.
+
+The table above it lists every tool found on the page, including tools inside
+iframes, with their frame IDs.
+
+Note that a tool run this way reports into the result pane below, **not** into the
+Transcript. The Transcript renders the agent loop; Inspector mode deliberately
+bypasses it, which is what makes it useful for reproducing a call by hand after
+copying the arguments out of a Transcript row.
+
+## Tests
+
+```bash
+cd test && npm install && npm test
+```
+
+Playwright downloads Chrome for Testing into `test/.cache` on first run; set
+`CHROME_PATH` to reuse an existing Chrome 150+ binary instead.
+
+**The suite is flaky, and the flakiness is inherited from upstream** — it
+reproduces on a pristine `upstream/main` checkout. Roughly one run in three dies
+with an uncaught `TimeoutError` and prints no summary line. Treat only a printed
+`N passed, M failed` line as a result; anything else means re-run.
 
 ## Disclaimer
 
