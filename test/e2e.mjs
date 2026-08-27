@@ -480,6 +480,153 @@ await demo.goto(`${BASE}/page2.html`);
 await waitSidebar(() => document.body.textContent.includes('No tools registered yet'));
 check('no-tools page shows empty state', true);
 
+// --- Theme (issue 0007): token-driven light/dark, the explicit toggle,
+// and the two inherited contrast/font defects. These read computed
+// styles only, never text content, so they're independent of whatever
+// markup other issues add.
+
+function parseRGB(str) {
+  const m = /rgba?\(([^)]+)\)/.exec(str || '');
+  if (!m) return null;
+  const [r, g, b] = m[1].split(',').map((s) => parseFloat(s));
+  return { r, g, b };
+}
+
+function relLuminance({ r, g, b }) {
+  const f = (c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+
+function contrastRatio(fg, bg) {
+  const l1 = relLuminance(fg);
+  const l2 = relLuminance(bg);
+  const [lighter, darker] = l1 > l2 ? [l1, l2] : [l2, l1];
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+const themeStyles = () =>
+  sidebar.evaluate(() => {
+    const body = document.body;
+    const html = document.documentElement;
+    const promptBtn = document.getElementById('promptBtn');
+    const userPromptText = document.getElementById('userPromptText');
+    // Chromium only generates the ::placeholder box (and so returns its
+    // own computed style, rather than silently falling back to the
+    // element's regular text color) when the element actually carries a
+    // placeholder attribute. The markup has none today, so set one here,
+    // for measurement only — this mutates the live DOM in this test run,
+    // not any production file.
+    const hadPlaceholder = userPromptText.hasAttribute('placeholder');
+    const priorPlaceholder = userPromptText.getAttribute('placeholder');
+    userPromptText.setAttribute('placeholder', 'measure');
+    const placeholderColor = getComputedStyle(userPromptText, '::placeholder').color;
+    if (hadPlaceholder) userPromptText.setAttribute('placeholder', priorPlaceholder);
+    else userPromptText.removeAttribute('placeholder');
+    return {
+      fontFamily: getComputedStyle(body).fontFamily,
+      colorScheme: getComputedStyle(html).colorScheme,
+      // Placeholder text renders inside the control, against its own
+      // background (var(--surface)) — not the page background.
+      controlBg: getComputedStyle(userPromptText).backgroundColor,
+      placeholderColor,
+      disabledColor: getComputedStyle(promptBtn).color,
+      disabledBg: getComputedStyle(promptBtn).backgroundColor,
+    };
+  });
+
+async function reloadSidebar() {
+  await sidebar.reload();
+  await sidebar.waitForLoadState('load');
+}
+
+function checkContrast(label, fgStr, bgStr) {
+  const fg = parseRGB(fgStr);
+  const bg = parseRGB(bgStr);
+  const ratio = fg && bg ? contrastRatio(fg, bg) : NaN;
+  check(`${label} contrast >= 4.5:1`, ratio >= 4.5, `${ratio.toFixed(2)}:1 (fg=${fgStr}, bg=${bgStr})`);
+}
+
+// Defect fix: font stack no longer Segoe-UI-first (which falls through to
+// Verdana on macOS).
+{
+  const { fontFamily } = await themeStyles();
+  check(
+    'body font-family leads with a system UI face, not Segoe UI',
+    !/^\s*"?segoe/i.test(fontFamily),
+    fontFamily,
+  );
+}
+
+// No explicit choice stored: follows prefers-color-scheme, both directions.
+await sidebar.evaluate(() => localStorage.removeItem('theme'));
+await sidebar.emulateMedia({ colorScheme: 'light' });
+await reloadSidebar();
+{
+  const s = await themeStyles();
+  check('no stored choice + system light -> color-scheme light', s.colorScheme === 'light', s.colorScheme);
+  checkContrast('light placeholder', s.placeholderColor, s.controlBg);
+  checkContrast('light disabled-text', s.disabledColor, s.disabledBg);
+}
+
+await sidebar.emulateMedia({ colorScheme: 'dark' });
+await reloadSidebar();
+{
+  const s = await themeStyles();
+  check('no stored choice + system dark -> color-scheme dark', s.colorScheme === 'dark', s.colorScheme);
+  checkContrast('dark placeholder', s.placeholderColor, s.controlBg);
+  checkContrast('dark disabled-text', s.disabledColor, s.disabledBg);
+}
+
+// Explicit choice wins over the OS setting, in both directions.
+await sidebar.evaluate(() => localStorage.setItem('theme', 'light'));
+await reloadSidebar(); // system still dark, from above
+{
+  const s = await themeStyles();
+  check('explicit light wins while system is dark', s.colorScheme === 'light', s.colorScheme);
+}
+
+await sidebar.emulateMedia({ colorScheme: 'light' });
+await sidebar.evaluate(() => localStorage.setItem('theme', 'dark'));
+await reloadSidebar();
+{
+  const s = await themeStyles();
+  check('explicit dark wins while system is light', s.colorScheme === 'dark', s.colorScheme);
+}
+
+// Manual toggle in the gear menu: applies live, and the choice persists
+// across a reload ("survives panel reopen").
+await sidebar.evaluate(() => localStorage.removeItem('theme'));
+await sidebar.emulateMedia({ colorScheme: 'light' });
+await reloadSidebar();
+await sidebar.click('#advancedBtn');
+await sidebar.click('input[name="theme"][value="dark"]');
+{
+  const s = await themeStyles();
+  check('toggle applies dark immediately, no reload needed', s.colorScheme === 'dark', s.colorScheme);
+}
+await reloadSidebar();
+{
+  const s = await themeStyles();
+  check('toggle choice survives panel reopen', s.colorScheme === 'dark', s.colorScheme);
+  const stored = await sidebar.evaluate(() => localStorage.getItem('theme'));
+  check('toggle persists via localStorage.theme', stored === 'dark', stored);
+}
+
+// No horizontal body scroll at a narrow (400px) sidebar width, either theme.
+await sidebar.setViewportSize({ width: 400, height: 600 });
+for (const theme of ['light', 'dark']) {
+  await sidebar.evaluate((t) => localStorage.setItem('theme', t), theme);
+  await reloadSidebar();
+  const overflow = await sidebar.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  check(`no horizontal body scroll at 400px (${theme})`, overflow <= 0, `overflow=${overflow}px`);
+}
+await sidebar.evaluate(() => localStorage.removeItem('theme'));
+
 // No console errors or unhandled rejections anywhere
 const relevantErrors = consoleErrors.filter((e) => !e.includes('net::'));
 check('no console errors', relevantErrors.length === 0, relevantErrors.join(' | ') || 'clean');
