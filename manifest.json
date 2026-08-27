@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "WebMCP - Model Context Tool Inspector",
+  "name": "AI Agent in Browser",
   "description": "Inspect, monitor, and execute WebMCP tools manually or with Gemini",
   "version": "1.9.14",
   "minimum_chrome_version": "150.0.7861.0",
