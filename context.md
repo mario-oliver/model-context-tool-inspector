@@ -82,13 +82,29 @@ Rules:
 - Cleared by the existing Reset control.
 - **Prose is the model talking; bordered rows are the machine acting.** The user
   must be able to follow the whole run by reading only the tool-call rows.
+- **Assistant prose is rendered Markdown; everything else is verbatim.** The model
+  writes Markdown, so rendering assistant text with `textContent` produced run-on
+  lines of literal `###` and `**`. `markdown.js` renders a small subset. Machine
+  text (user prompt, errors, warnings, tool rows) stays verbatim with
+  `white-space: pre-wrap` — a regression fix as much as a style, since upstream's
+  `<pre id="promptResults">` carried `white-space: pre-line` and the `<div>` that
+  replaced it collapsed every line break.
+- **`markdown.js` never produces markup from a string.** Assistant text is model
+  output relaying page content, i.e. untrusted. The renderer uses
+  `createElement`/`createTextNode` only — no `innerHTML`, no `insertAdjacentHTML`,
+  no template-to-HTML step. Angle brackets stay text.
+- **Links are never anchors.** `[text](url)` renders the text with the URL on a
+  `title`. Consistent with the flag-never-act stance: a clickable link written by
+  a model that just read an untrusted page is an outward-facing action, and an
+  inert `title` removes the `javascript:` surface for free.
 
 Implementation notes — the DOM contract, as built:
 
 ```
 #transcript
   .t-flow                                  <- the ordered Event stream
-    .t-user | .t-assist | .t-error | .t-warning
+    .t-user | .t-error | .t-warning        <- verbatim text, pre-wrap
+    .t-assist > .md-p|.md-h|.md-list|...   <- rendered Markdown (markdown.js)
     details.t-ev[.ok|.lost|.err][.dstr]    <- ONE tool call = one <details>
       summary                              <- everything readable while COLLAPSED
         .t-head                            <- flex row

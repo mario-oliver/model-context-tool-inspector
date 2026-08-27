@@ -224,7 +224,13 @@ suggestUserPromptCheckbox.onchange = () => {
 
 async function suggestUserPrompt() {
   if (localStorage.suggestUserPrompt === 'false') return;
-  if (currentTools.length == 0 || !genAI || userPromptText.value !== lastSuggestedUserPrompt)
+  // `?.` guards an upstream crash, not a hypothetical: `currentTools` starts
+  // undefined and stays undefined until the first tool-list message lands, but
+  // Reset, the API-key prompt and the suggest checkbox all call this
+  // immediately. Any of them before the first message threw an uncaught
+  // TypeError in the panel. Intermittent, ~1 run in 14, and it tripped this
+  // project's own "no console errors" gate.
+  if (!currentTools?.length || !genAI || userPromptText.value !== lastSuggestedUserPrompt)
     return;
   const userPromptId = ++userPromptPendingId;
   const response = await genAI.models.generateContent({

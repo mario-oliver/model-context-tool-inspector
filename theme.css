@@ -654,3 +654,134 @@ dialog::backdrop {
     transition: none;
   }
 }
+
+/* ---- Rendered assistant prose (markdown.js) ---- */
+
+/* Verbatim kinds keep their line breaks. Upstream's <pre id="promptResults">
+   had `white-space: pre-line`; the .t-* divs that replaced it had nothing, so
+   multi-line text collapsed to one run-on line. */
+#transcript .t-user,
+#transcript .t-error,
+#transcript .t-warning {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Block rhythm comes from the flow gap; margins here would double it. First and
+   last child collapse to nothing so a one-paragraph answer sits flush. */
+#transcript .t-assist > * {
+  margin: 0.4rem 0 0;
+}
+
+#transcript .t-assist > :first-child {
+  margin-top: 0;
+}
+
+/* A heading inside a chat line is a strong label, not a document heading — it
+   stays close to the body size and earns its weight from colour and tracking.
+   Levels differ only by degree, since the model's choice of ### vs #### carries
+   little meaning in a two-paragraph answer. */
+#transcript .t-assist .md-h {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+  margin-top: 0.7rem;
+}
+
+#transcript .t-assist .md-h[data-level="1"],
+#transcript .t-assist .md-h[data-level="2"] {
+  font-size: 0.9375rem;
+}
+
+#transcript .t-assist .md-h[data-level="3"] {
+  font-size: 0.875rem;
+}
+
+#transcript .t-assist .md-h[data-level="4"],
+#transcript .t-assist .md-h[data-level="5"],
+#transcript .t-assist .md-h[data-level="6"] {
+  font-size: 0.8125rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+#transcript .t-assist .md-p {
+  overflow-wrap: anywhere;
+}
+
+#transcript .t-assist .md-list {
+  padding-left: 1.15rem;
+}
+
+#transcript .t-assist .md-list .md-list {
+  margin: 0.15rem 0 0;
+}
+
+#transcript .t-assist .md-list li {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+#transcript .t-assist .md-list li::marker {
+  color: var(--muted);
+}
+
+#transcript .t-assist strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+#transcript .t-assist s {
+  color: var(--muted);
+}
+
+/* Inline code inside prose: tinted enough to read as a token, quiet enough not
+   to compete with the .t-ev rows, which are the thing being scanned. */
+#transcript .t-assist .md-code {
+  font-family: var(--font-mono);
+  font-size: 0.8125em;
+  padding: 0.05rem 0.25rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+#transcript .t-assist .md-pre {
+  margin-top: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--prebg);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  overflow-x: auto;
+}
+
+#transcript .t-assist .md-pre code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink);
+  white-space: pre;
+}
+
+#transcript .t-assist .md-quote {
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--rule);
+  color: var(--muted);
+}
+
+#transcript .t-assist .md-hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 0.6rem 0 0;
+}
+
+/* Not an <a>, by design (see markdown.js): dotted underline says "there is a
+   URL here, on the title" without implying it is clickable. */
+#transcript .t-assist .md-link {
+  color: var(--accent);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+}

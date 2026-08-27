@@ -8,10 +8,15 @@
  * "It never reads agent state directly."). That is what makes it testable with
  * a hand-written fixture array and nothing else running.
  *
+ * Assistant prose is the one Event kind rendered as Markdown (markdown.js);
+ * everything else is verbatim text, because everything else is machine output.
+ *
  * Event kinds (issue 0001): 'user' | 'assistant' | 'toolCall' | 'error' | 'warning'.
  * Tool call status (issue 0001): 'ok' | 'error'. ('lost' arrives in issue 0002,
  * alongside urlBefore/urlAfter/durationMs — not populated here.)
  */
+
+import { renderMarkdown } from './markdown.js';
 
 let container = null;
 let events = [];
@@ -74,7 +79,9 @@ function renderEvent(event) {
     case 'user':
       return renderLine(event, 't-user');
     case 'assistant':
-      return renderLine(event, 't-assist');
+      // The only kind that gets Markdown. The model writes it, so rendering it
+      // as text produced run-on lines of literal ### and **.
+      return renderProse(event, 't-assist');
     case 'error':
       return renderLine(event, 't-error');
     case 'warning':
@@ -89,7 +96,18 @@ function renderEvent(event) {
 function renderLine(event, className) {
   const div = document.createElement('div');
   div.className = className;
+  // Verbatim, and `white-space: pre-wrap` in theme.css keeps the newlines. This
+  // is a regression fix as much as a style: upstream's <pre id="promptResults">
+  // carried `white-space: pre-line` (styles.css:48), and swapping it for a
+  // <div> silently collapsed every line break in a multi-line prompt.
   div.textContent = event.text ?? '';
+  return div;
+}
+
+function renderProse(event, className) {
+  const div = document.createElement('div');
+  div.className = className;
+  div.appendChild(renderMarkdown(event.text ?? ''));
   return div;
 }
 

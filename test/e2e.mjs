@@ -108,12 +108,25 @@ const extensionId = new URL(sw.url()).host;
 
 const consoleErrors = [];
 function watch(page, label) {
+  watched.add(page);
   page.on('console', (msg) => {
     if (msg.type() === 'error') consoleErrors.push(`[${label}] console.error: ${msg.text()}`);
   });
-  page.on('pageerror', (err) => consoleErrors.push(`[${label}] pageerror: ${err.message}`));
+  // Keep the stack, not just the message: a bare "reading 'length'" with no
+  // frames is unactionable, and this gate is cumulative, so the throw can have
+  // happened many checks before the failure is reported.
+  page.on('pageerror', (err) =>
+    consoleErrors.push(`[${label}] pageerror: ${err.stack ?? err.message}`),
+  );
 }
-context.on('page', (p) => watch(p, 'spawned'));
+// The sidebar page is created by context.newPage() below, so this handler fires
+// for it too and it ends up watched twice — once as 'spawned', once as
+// 'sidebar'. That reported a single throw as two errors, which reads like two
+// independent failures in two contexts. Watch each page once.
+const watched = new WeakSet();
+context.on('page', (p) => {
+  if (!watched.has(p)) watch(p, 'spawned');
+});
 
 const demo = context.pages()[0];
 watch(demo, 'demo');
@@ -799,7 +812,11 @@ const readThemeCoverage = () =>
     const T = await import('./transcript.js');
     T.reset();
     T.append('user', { text: 'ship it' });
-    T.append('assistant', { text: 'calling three tools' });
+    // Markdown, so the prose styling is measured alongside everything else
+    // rather than being the one unverified surface.
+    T.append('assistant', {
+      text: '#### Result\ncalling `three` tools with a [link](https://a.test) and **bold**\n\n> aside',
+    });
     T.append('toolCall', { toolName: 'read_notes', status: 'ok', sentArgs: { q: 'x' }, durationMs: 12, frameId: 0 });
     T.append('toolCall', { toolName: 'go_checkout', status: 'lost', sentArgs: {}, urlBefore: 'https://a.test/1', urlAfter: 'https://a.test/2', durationMs: 300, frameId: 0 });
     // 'error', not 'err': 'err' is the CLASS transcript.js derives, not the
@@ -893,6 +910,11 @@ const readThemeCoverage = () =>
         'transcript error line': pair('#transcript .t-error'),
         'transcript warning line': pair('#transcript .t-warning'),
         'inactive mode tab': onto('#modes button.secondary', 'body'),
+        'prose inline code': pair('#transcript .t-assist .md-code'),
+        'prose link': onto('#transcript .t-assist .md-link', '#transcript'),
+        'prose quote': onto('#transcript .t-assist .md-quote', '#transcript'),
+        'prose small heading': onto('#transcript .t-assist .md-h[data-level="4"]', '#transcript'),
+        'prose bold': onto('#transcript .t-assist strong', '#transcript'),
       },
     };
   });
@@ -948,6 +970,105 @@ for (const [label, p] of Object.entries(themeDark.contrast)) {
 await sidebar.evaluate(() => {
   delete document.documentElement.dataset.theme;
 });
+// ---------------------------------------------------------------------------
+// Assistant prose is rendered Markdown (markdown.js), not literal source.
+//
+// The fixture is the exact text a real run produced and that reported the bug:
+// it arrived as one run-on line of literal ### and **, because .t-assist used
+// textContent and nothing set white-space.
+// ---------------------------------------------------------------------------
+const PROSE = [
+  "The form has been filled out with Jane Doe's details and submitted.",
+  '### Submitted Information:',
+  '- **First Name:** Jane',
+  '- **Last Name:** Doe',
+  '- **Work Email:** jane.doe@example.com',
+  '  - nested detail with `inline_code`',
+  '',
+  '1. first step',
+  '2. second step',
+  '',
+  '> a quoted aside',
+  '',
+  '```js',
+  'const x = **not bold**;',
+  '```',
+  '',
+  '**Status:** Submitted successfully (Confirmation received: *"Submitting..."*).',
+].join('\n');
+
+// Untrusted by construction: assistant text is model output relaying page
+// content. markdown.js builds DOM with createElement/createTextNode only, so
+// this must come out as visible text and create no elements.
+const HOSTILE = '<img src=x onerror="alert(1)"> then <script>bad()</script> then [click](javascript:alert(1))';
+
+const prose = await sidebar.evaluate(async ([md, hostile]) => {
+  const T = await import('./transcript.js');
+  T.reset();
+  T.append('assistant', { text: md });
+  T.append('user', { text: 'line one\nline two' });
+  T.append('assistant', { text: hostile });
+  const nodes = [...document.querySelectorAll('#transcript .t-assist')];
+  const first = nodes[0];
+  const last = nodes[1];
+  const userEl = document.querySelector('#transcript .t-user');
+  return {
+    // Literal markers must be gone from PROSE — but not from inside a fenced
+    // block, where preserving them verbatim is the correct behaviour. Measure
+    // the text with the fences excised, or this contradicts the fence check.
+    text: (() => {
+      const clone = first.cloneNode(true);
+      clone.querySelectorAll('.md-pre').forEach((el) => el.remove());
+      return clone.textContent;
+    })(),
+    headings: [...first.querySelectorAll('.md-h')].map((h) => [h.dataset.level, h.textContent]),
+    // `:scope >` matters: the nested <ul> is also .md-list, so a bare
+    // `ul.md-list > li` counts nested items as top-level ones too.
+    ulItems: [...first.querySelectorAll(':scope > ul.md-list > li')].map((li) => li.firstChild?.textContent ?? ''),
+    nestedItems: [...first.querySelectorAll('ul.md-list ul.md-list > li')].map((li) => li.textContent),
+    olItems: [...first.querySelectorAll('ol.md-list > li')].map((li) => li.textContent),
+    strongs: [...first.querySelectorAll('strong')].map((e) => e.textContent),
+    ems: [...first.querySelectorAll('em')].map((e) => e.textContent),
+    inlineCode: [...first.querySelectorAll('.md-code')].map((e) => e.textContent),
+    fenced: first.querySelector('.md-pre code')?.textContent,
+    quote: first.querySelector('.md-quote')?.textContent,
+    // Real line breaks, not collapsed whitespace: compare rendered box height
+    // to a single line's, which is what actually went wrong.
+    userWhiteSpace: getComputedStyle(userEl).whiteSpace,
+    userLines: (() => {
+      const r = document.createRange();
+      r.selectNodeContents(userEl);
+      // Distinct vertical positions, not raw rect count: a Range spanning a
+      // forced break yields an extra zero-width rect at the break itself, so
+      // counting rects reports 3 for two lines.
+      return new Set([...r.getClientRects()].map((rc) => Math.round(rc.top))).size;
+    })(),
+    // Hostile input: element count by tag, and whether the text survived.
+    hostileTags: [...last.querySelectorAll('*')].map((e) => e.tagName.toLowerCase()).sort(),
+    hostileText: last.textContent,
+    hostileAnchors: last.querySelectorAll('a').length,
+    hostileScripts: last.querySelectorAll('script, img, iframe, object, embed').length,
+  };
+}, [PROSE, HOSTILE]);
+
+check('markdown: no literal ### or ** survives into the rendered text', !/###|\*\*/.test(prose.text), prose.text.slice(0, 120));
+check('markdown: heading rendered with its level', JSON.stringify(prose.headings) === JSON.stringify([['3', 'Submitted Information:']]), JSON.stringify(prose.headings));
+check('markdown: bullet list rendered as <ul><li>', prose.ulItems.length === 3 && prose.ulItems[0] === 'First Name:', JSON.stringify(prose.ulItems));
+check('markdown: indented item nests instead of flattening', prose.nestedItems.length === 1 && prose.nestedItems[0].includes('nested detail'), JSON.stringify(prose.nestedItems));
+check('markdown: numbered list rendered as <ol><li>', JSON.stringify(prose.olItems) === JSON.stringify(['first step', 'second step']), JSON.stringify(prose.olItems));
+check('markdown: bold spans rendered as <strong>', prose.strongs.includes('First Name:') && prose.strongs.includes('Status:'), JSON.stringify(prose.strongs));
+check('markdown: italic rendered as <em>', prose.ems.some((t) => t.includes('Submitting...')), JSON.stringify(prose.ems));
+check('markdown: inline code rendered as <code>', JSON.stringify(prose.inlineCode) === JSON.stringify(['inline_code']), JSON.stringify(prose.inlineCode));
+check('markdown: fenced block kept verbatim, markers NOT parsed inside it', prose.fenced === 'const x = **not bold**;', String(prose.fenced));
+check('markdown: blockquote rendered', prose.quote === 'a quoted aside', String(prose.quote));
+
+check('markdown: verbatim kinds keep newlines (white-space set)', /pre-wrap|pre-line/.test(prose.userWhiteSpace), prose.userWhiteSpace);
+check('markdown: a two-line prompt actually occupies two lines', prose.userLines === 2, `lines=${prose.userLines}`);
+
+check('markdown XSS: hostile input creates no live elements', prose.hostileScripts === 0 && prose.hostileAnchors === 0, JSON.stringify(prose.hostileTags));
+check('markdown XSS: markup renders as visible text instead', prose.hostileText.includes('<img src=x onerror="alert(1)">') && prose.hostileText.includes('<script>bad()</script>'), prose.hostileText);
+check('markdown XSS: a javascript: target is never an anchor', prose.hostileTags.every((t) => t !== 'a'), JSON.stringify(prose.hostileTags));
+
 // Calm by default (context.md#Governing principle): an empty Transcript shows
 // no panel at all. transcript.js always mounts a .t-flow wrapper, so the rule
 // keys off an empty flow rather than :empty — worth asserting, because the
