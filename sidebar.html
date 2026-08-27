@@ -9,38 +9,167 @@
     <title>Tool Inspector</title>
     <meta charset="utf-8">
     <link rel="stylesheet" href="styles.css" />
+    <style>
+      /*
+       * Structural-only rules for the Transcript (issue 0001) and the two-mode
+       * shell (issue 0004). No colour here, deliberately: colour is issue 0007's
+       * theme.css, which supplies it via custom properties (--ok/--warn/--err
+       * etc.) after styles.css.
+       *
+       * These rules exist because native <details> hides every non-summary child
+       * while closed (breaking ".precis visible collapsed", and the lost-result
+       * evidence which must read without expanding), and because the flow/summary
+       * layout is part of the frozen DOM contract, not a look 0007 should have to
+       * re-derive.
+       */
+      #transcript {
+        overflow-y: auto;
+      }
+      #transcript .t-flow {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      #transcript .t-user {
+        align-self: flex-end;
+        text-align: right;
+      }
+      #transcript details.t-ev > summary {
+        display: block;
+        cursor: pointer;
+        list-style: none;
+      }
+      #transcript details.t-ev > summary > .t-head {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+      }
+      #transcript details.t-ev > summary::-webkit-details-marker {
+        display: none;
+      }
+      #transcript details.t-ev > summary .ms {
+        margin-left: auto;
+      }
+      /*
+       * .precis and .t-evidence live INSIDE <summary> on purpose. Chrome hides
+       * details content via ::details-content { content-visibility: hidden },
+       * which a child's `display: block` cannot override — so anything that must
+       * read while collapsed has to be inside <summary>. .t-raw stays outside it.
+       */
+      #transcript details.t-ev > summary > .t-evidence span {
+        display: block;
+      }
+      #transcript details.t-ev[open] > summary .chev {
+        display: inline-block;
+        transform: rotate(90deg);
+      }
+      #transcript .t-kv {
+        display: grid;
+        grid-template-columns: 5.5rem 1fr;
+        gap: 2px 8px;
+        margin: 0;
+      }
+      #transcript .t-kv dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      /* Two-mode shell (issue 0004) */
+      #strip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #modes {
+        display: flex;
+        margin-left: auto;
+      }
+      #strip .icon-btn {
+        position: static;
+      }
+      .mode[hidden] {
+        display: none;
+      }
+      /* Opener chips (issue 0005) */
+      #chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      #chips:empty {
+        display: none;
+      }
+    </style>
+    <link rel="stylesheet" href="theme.css" />
+    <script src="theme.js"></script>
   </head>
   <body>
     <div class="container">
-      <h2 class="collapsible-header">WebMCP Tools</h2>
-      <div class="section-content">
+      <div id="strip">
+        <span id="badge">WebMCP</span>
+        <div id="modes">
+          <button id="modeAssistant" type="button">Assistant</button>
+          <button id="modeInspector" type="button" class="secondary">Inspector</button>
+        </div>
+        <button id="advancedBtn" title="Settings" popovertarget="advancedSection" class="icon-btn">&#9881;</button>
+      </div>
 
       <div id="status"></div>
 
-      <div class="table-container">
-        <table id="resultsTable">
-          <thead>
-            <tr id="tableHeaderRow"></tr>
-          </thead>
-          <tbody id="tableBody"></tbody>
-        </table>
-        <div id="copyToClipboard">
-          <span id="copyAsScriptToolConfig">📝 Copy as ScriptToolConfig</span>
-          <span id="copyAsJSON">📝 Copy as JSON</span>
-        </div>
-      </div>
-      </div>
+      <section id="mode-assistant" class="mode">
+        <div id="chips"></div>
 
-      <h2 class="collapsible-header">Interact with the Page</h2>
-      <div class="section-content">
+        <div id="transcript"></div>
 
-      <div class="form-group">
-        <div class="label-with-button">
+        <div class="form-group">
           <label for="userPromptText">User Prompt</label>
-          <button id="advancedBtn" title="Advanced features" popovertarget="advancedSection" class="icon-btn">︙</button>
+          <textarea id="userPromptText"></textarea>
         </div>
-        <textarea id="userPromptText"></textarea>
-      </div>
+
+        <div class="form-group">
+          <button id="promptBtn" disabled>Send</button>
+          <button id="resetBtn" class="secondary" disabled>Reset</button>
+          <button id="apiKeyBtn" class="secondary">Set Gemini API key</button>
+          <button id="traceBtn" class="secondary">Copy trace</button>
+        </div>
+      </section>
+
+      <section id="mode-inspector" class="mode">
+        <h2 class="collapsible-header">WebMCP Tools</h2>
+        <div class="section-content">
+          <div class="table-container">
+            <table id="resultsTable">
+              <thead>
+                <tr id="tableHeaderRow"></tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+            <div id="copyToClipboard">
+              <span id="copyAsScriptToolConfig">📝 Copy as ScriptToolConfig</span>
+              <span id="copyAsJSON">📝 Copy as JSON</span>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="collapsible-header">Run one by hand</h2>
+        <div class="section-content">
+          <div class="form-group">
+            <label for="toolNames">Tool</label>
+            <select id="toolNames"></select>
+          </div>
+
+          <div class="form-group">
+            <label for="inputArgsText">Input Arguments</label>
+            <textarea id="inputArgsText">{"text": "hello world"}</textarea>
+          </div>
+
+          <div class="form-group">
+            <button id="executeBtn">Execute Tool</button>
+          </div>
+
+          <pre id="toolResults"></pre>
+        </div>
+      </section>
 
       <dialog id="advancedSection" popover autofocus>
         <div class="menu-label">Gemini Model</div>
@@ -70,33 +199,8 @@
           <span>Suggest user prompt</span>
         </label>
       </dialog>
-
-      <div class="form-group">
-        <button id="promptBtn" disabled>Send</button>
-        <button id="resetBtn" class="secondary" disabled>Reset</button>
-        <button id="apiKeyBtn" class="secondary">Set Gemini API key</button>
-        <button id="traceBtn" class="secondary">Copy trace</button>
-      </div>
-
-      <pre id="promptResults"></pre>
-
-      <div class="form-group">
-        <label for="toolNames">Tool</label>
-        <select id="toolNames"></select>
-      </div>
-
-      <div class="form-group">
-        <label for="inputArgsText">Input Arguments</label>
-        <textarea id="inputArgsText">{"text": "hello world"}</textarea>
-      </div>
-
-      <div class="form-group">
-        <button id="executeBtn">Execute Tool</button>
-      </div>
-
-      <pre id="toolResults"></pre>
-      </div>
     </div>
+    <script type="module" src="mode.js"></script>
     <script type="module" src="sidebar.js"></script>
   </body>
 </html>

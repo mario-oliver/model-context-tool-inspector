@@ -5,6 +5,10 @@
 
 console.debug(`[WebMCP] Content script injected in ${window.location.href}`);
 
+// Guard against a same-frame re-injection re-registering this listener and
+// double-firing EXECUTE_TOOL side effects.
+if (!window.webmcpContentScriptLoaded) {
+window.webmcpContentScriptLoaded = true;
 chrome.runtime.onMessage.addListener((message, _, reply) => {
   const { action, name, inputArgs, fromOrigins } = message;
   try {
@@ -71,8 +75,15 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
     chrome.runtime.sendMessage({ message });
   }
 });
+} else if (window === window.top && document.modelContext) {
+  // Re-injection: the listener above is already live, but this is the whole
+  // reason background.js re-runs this file, so still trigger a fresh listing.
+  debouncedListTools();
+}
 
-let timeout;
+// var, not let: redeclaring `let timeout` on re-injection throws before any
+// statement below runs. var redeclaration is a no-op.
+var timeout;
 function debouncedListTools(fromOrigins) {
   clearTimeout(timeout);
   timeout = setTimeout(() => listTools(fromOrigins), 100);
@@ -88,6 +99,8 @@ async function listTools(fromOrigins) {
       description: tool.description,
       inputSchema,
       readOnlyHint: tool.annotations?.readOnlyHint ? '✓' : undefined,
+      // Not an arbitrary subset: the only two keys the Chrome OT puts on
+      // `annotations`. See docs/adr/0004-forward-destructive-hint.md.
       untrustedContentHint: tool.annotations?.untrustedContentHint ? '✓' : undefined,
       name: tool.name,
       frameId,
