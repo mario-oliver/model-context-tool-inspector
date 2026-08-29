@@ -42,7 +42,9 @@ Transcript.mount(document.getElementById('transcript'));
   }
 })();
 
-let currentTools;
+// Never undefined: a tool-response turn builds getConfig() from this, and a
+// navigation mid-run delivers a message with no tools. See the guard below.
+let currentTools = [];
 
 let userPromptPendingId = 0;
 let lastSuggestedUserPrompt = '';
@@ -65,7 +67,7 @@ chrome.runtime.onMessage.addListener(async ({ message, tools, url, type }, sende
 
   const haveNewTools = JSON.stringify(currentTools) !== JSON.stringify(tools);
 
-  currentTools = tools;
+  currentTools = tools ?? [];
 
   if (!tools || tools.length === 0) {
     const row = document.createElement('tr');
@@ -541,7 +543,13 @@ function getConfig() {
     'CRITICAL RULE: Do not try to use other tools than the available ones.',
   ];
 
-  const functionDeclarations = currentTools.map((tool) => {
+  // `?? []` guards the same upstream crash the `?.` at the toolCall lookup
+  // does. A tool that navigates the page (e.g. a search-results tool) kills the
+  // content script AND delivers a tool-less message, so the tool-response turn
+  // that follows built its config from an undefined list and threw
+  // "Cannot read properties of undefined (reading 'map')" — after the tool
+  // error itself had already been handled cleanly.
+  const functionDeclarations = (currentTools ?? []).map((tool) => {
     return {
       name: `_${tool.frameId}_${tool.name}`,
       description: tool.description,
