@@ -25,6 +25,17 @@ Assistant mode to drive an agent. Listing tools, the opener chips and running a
 tool by hand all work without one — but the Transcript only fills from the agent
 loop, so it stays empty until a key is set.
 
+## Publishing to the Chrome Web Store
+
+`npm run package` builds `dist/ai-agent-in-browser-<version>.zip` from an
+explicit file allowlist, so tests, docs, and `.env.json` never ship. Upload that
+zip. The listing's privacy policy is `store/PRIVACY.md`; upstream's `PRIVACY.md`
+stays untouched so merges stay clean.
+
+Versions follow upstream with a fourth part for fork releases: `1.9.16.1` is the
+first fork release on upstream `1.9.16`. After each upstream merge, reset the
+fourth part to `.1`.
+
 ## Install (load unpacked)
 
 The Chrome Web Store
