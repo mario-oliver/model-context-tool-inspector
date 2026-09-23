@@ -1,7 +1,8 @@
 {
   "scripts": {
     "postinstall": "npx esbuild ./node_modules/@google/genai/dist/web/index.mjs --bundle --format=esm --outfile=js-genai.js && rm -rf node_modules",
-    "guard:merge-surface": "node -e \"const {execSync}=require('child_process');const out=execSync('git diff upstream/main --name-only -- styles.css background.js utils.js').toString().trim();if(out){console.error('merge-surface guard FAILED, unexpected diff vs upstream/main:\\n'+out);process.exit(1);}console.log('merge-surface guard: clean (styles.css, background.js, utils.js match upstream/main)');\""
+    "guard:merge-surface": "node -e \"const {execSync}=require('child_process');const out=execSync('git diff upstream/main --name-only -- styles.css background.js utils.js').toString().trim();if(out){console.error('merge-surface guard FAILED, unexpected diff vs upstream/main:\\n'+out);process.exit(1);}console.log('merge-surface guard: clean (styles.css, background.js, utils.js match upstream/main)');\"",
+    "package": "./scripts/package.sh"
   },
   "dependencies": {
     "@google/genai": "^1.38.0"
