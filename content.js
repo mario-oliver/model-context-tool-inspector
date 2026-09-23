@@ -81,7 +81,7 @@ chrome.runtime.onMessage.addListener((message, _, reply) => {
   debouncedListTools();
 }
 
-// var, not let: redeclaring `let timeout` on re-injection throws before any
+// var, not let/const (here and targetFor below): redeclaring on re-injection throws before any
 // statement below runs. var redeclaration is a no-op.
 var timeout;
 function debouncedListTools(fromOrigins) {
@@ -98,10 +98,9 @@ async function listTools(fromOrigins) {
     tools.push({
       description: tool.description,
       inputSchema,
-      readOnlyHint: tool.annotations?.readOnlyHint ? '✓' : undefined,
-      // Not an arbitrary subset: the only two keys the Chrome OT puts on
-      // `annotations`. See docs/adr/0004-forward-destructive-hint.md.
-      untrustedContentHint: tool.annotations?.untrustedContentHint ? '✓' : undefined,
+      annotations: Object.keys(tool.annotations || {})
+        .filter((k) => tool.annotations[k])
+        .join(', '),
       name: tool.name,
       frameId,
     });
@@ -131,11 +130,16 @@ async function getFrameId(targetWindow) {
   return promise;
 }
 
-window.addEventListener('toolactivated', ({ toolName }) => {
+// TODO: Remove when window.ontoolactivated and window.ontoolcancel are removed in Chrome Stable.
+var targetFor = (type, listener, options) =>
+  (`on${type}` in (document.modelContext ?? {}) ? document.modelContext : window)
+    .addEventListener(type, listener, options);
+
+targetFor('toolactivated', ({ toolName }) => {
   console.debug(`[WebMCP] Tool "${toolName}" started execution.`);
 });
 
-window.addEventListener('toolcancel', ({ toolName }) => {
+targetFor('toolcancel', ({ toolName }) => {
   console.debug(`[WebMCP] Tool "${toolName}" execution is cancelled.`);
 });
 

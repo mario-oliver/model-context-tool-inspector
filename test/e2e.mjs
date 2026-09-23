@@ -1149,23 +1149,22 @@ check(
   `charge_card declares destructiveHint:true and is still unflagged: ${JSON.stringify(annotated)}`,
 );
 
-// The Inspector table must show the two real hints and nothing invented.
+// The Inspector table must show the declared hints and nothing invented.
 await ensureInspector();
 const annotationColumns = await sidebar.evaluate(() => {
   const heads = [...document.querySelectorAll('#tableHeaderRow th')].map((t) => t.textContent);
   const nameCol = heads.indexOf('name');
-  const roCol = heads.indexOf('readOnlyHint');
+  const annCol = heads.indexOf('annotations');
   const rows = [...document.querySelectorAll('#tableBody tr')].map((r) => {
     const cells = [...r.children].map((c) => c.textContent.trim());
-    return [cells[nameCol], cells[roCol]];
+    return [cells[nameCol], cells[annCol]];
   });
   return { heads, readOnly: Object.fromEntries(rows) };
 });
 check('Inspector: no destructiveHint column (nothing populates it)', !annotationColumns.heads.includes('destructiveHint'), JSON.stringify(annotationColumns.heads));
-check('Inspector: readOnlyHint column reflects the declaration', annotationColumns.readOnly.delete_draft === '✓', JSON.stringify(annotationColumns.readOnly));
-// Undeclared cells render blank, not the string "undefined": an absent hint
-// arrives as a missing key, and textContent stringifies undefined.
-check('Inspector: an undeclared hint renders blank, not "undefined"', annotationColumns.readOnly.wipe_cache === '', JSON.stringify(annotationColumns.readOnly));
+check('Inspector: annotations column reflects the readOnlyHint declaration', annotationColumns.readOnly.delete_draft.split(', ').includes('readOnlyHint'), JSON.stringify(annotationColumns.readOnly));
+// Undeclared cells render blank: content.js joins no truthy keys into ''.
+check('Inspector: a tool with no annotations renders blank', annotationColumns.readOnly.wipe_cache === '', JSON.stringify(annotationColumns.readOnly));
 await ensureAssistant();
 
 await context.close();
