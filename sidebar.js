@@ -86,7 +86,7 @@ chrome.runtime.onMessage.addListener(async ({ message, tools, url, type }, sende
   executeBtn.disabled = false;
   copyToClipboard.hidden = false;
 
-  const KEYS = ['description', 'inputSchema', 'readOnlyHint', 'untrustedContentHint', 'name'];
+  const KEYS = ['description', 'inputSchema', 'annotations', 'name'];
   const keys = KEYS.filter((key) => tools.some((tool) => key in tool));
   keys.forEach((key) => {
     const th = document.createElement('th');
@@ -517,7 +517,8 @@ function isLostToNavigation(error) {
  * Consequence to be honest about: annotations can CLEAR a tool but not FLAG one.
  */
 function isDestructive(tool) {
-  if (tool?.readOnlyHint) return false;
+  // content.js flattens truthy annotations into one string, e.g. 'readOnlyHint, untrustedContentHint'.
+  if (tool?.annotations?.split(', ').includes('readOnlyHint')) return false;
   // Separator-agnostic: real tools use hyphens (optimizely-…-submit) and the
   // fixtures use underscores (submit_order). Both must match.
   return /(^|[-_])(submit|delete|purchase)([-_]|$)/i.test(tool?.name ?? '');
